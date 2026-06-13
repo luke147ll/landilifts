@@ -95,6 +95,34 @@ header{position:sticky;top:0;z-index:30;background:linear-gradient(180deg,var(--
 .card.collapsed .ccol{transform:rotate(-90deg)}
 .card.collapsed .sets,.card.collapsed .more{display:none}
 .card.collapsed .chead{padding-bottom:13px}
+.card.collapsed .tags{display:none}
+.card:not(.collapsed) .csum{display:none}
+
+/* complete / incomplete status */
+.card.done{border-color:rgba(166,227,161,.35)}
+.card.done .cnum{color:var(--green)}
+.csum{font-size:11px;color:var(--ovl);margin-top:7px;letter-spacing:.2px}
+.csum b{color:var(--sub1);font-weight:600}
+.card.done .csum b{color:var(--green)}
+
+/* per-set clear */
+.wtright{margin-left:auto;display:flex;align-items:center;gap:8px}
+.wtright .lasthint{margin-left:0}
+.setclear{width:26px;height:26px;border-radius:8px;background:var(--s0);border:1px solid var(--s1);color:var(--ovl);
+  font-size:11px;flex-shrink:0;transition:.15s}
+.setclear:active{background:var(--s1);transform:scale(.9)}
+
+/* finish workout + summary */
+.finbar{margin:20px 0 8px}
+.finbtn{width:100%;padding:15px;border-radius:14px;background:var(--mauve);color:var(--crust);font-family:var(--disp);
+  font-weight:700;font-size:15px;letter-spacing:.3px;transition:transform .15s}
+.finbtn:active{transform:scale(.97)}
+.finbtn.done{background:rgba(166,227,161,.14);border:1px solid rgba(166,227,161,.4);color:var(--green)}
+.summgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0 4px}
+.scell{background:var(--mantle);border:1px solid var(--s0);border-radius:12px;padding:13px;text-align:center}
+.scell .sv{font-family:var(--disp);font-weight:700;font-size:24px;color:var(--text);line-height:1.1}
+.scell .sl{font-size:11px;color:var(--sub);margin-top:3px;letter-spacing:.3px}
+.tab .tfin{position:absolute;top:7px;left:8px;color:var(--green);font-size:11px;font-weight:700}
 
 /* ---------- working-set blocks (steppers) ---------- */
 .sets{padding:4px 14px 8px}

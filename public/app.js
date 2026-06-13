@@ -91,11 +91,11 @@ const e1rm=(w,r)=> (w>0&&r>0)? Math.round(w*(1+r/30)) : 0;
 function liveRec(idx){ const k=keyFor(state.wk,state.day); const dc=dayCache[k]||(dayCache[k]={}); return dc[idx]||(dc[idx]={done:false,sets:[]}); }
 
 // ---- PR detection ----
-let PR_BASE={}, prFiredSession=new Set(), toastTimer=null;
+let PR_BASE={}, prFiredSession=new Set(), toastTimer=null, afterEdit=null;
 async function computePRBase(){
   PR_BASE={};
   let all={}; try{ all=await gatherAll(); }catch(_){}
-  for(const k in all){ const m=k.match(/w(\d+):(\w+)/); if(!m) continue;
+  for(const k in all){ if(!k.startsWith('bts:log:')) continue; const m=k.match(/w(\d+):(\w+)/); if(!m) continue;
     const exs=(DATA.weeks[+m[1]-1]&&DATA.weeks[+m[1]-1].days[m[2]])||[]; const log=all[k]||{};
     exs.forEach((ex,i)=>{ const rec=log[i]; if(!rec||!rec.sets) return;
       rec.sets.forEach(st=>{ const e=e1rm(parseFloat(st.w),parseFloat(st.r)); if(e>(PR_BASE[ex.ex]||0)) PR_BASE[ex.ex]=e; }); });
@@ -108,6 +108,7 @@ function setField(idx, ex, s, f, val){
   queueSave(state.wk,state.day);
   const sv=r.sets[s]; const e=e1rm(parseFloat(sv.w),parseFloat(sv.r));
   if(e>(PR_BASE[ex.ex]||0) && !prFiredSession.has(ex.ex)){ fireToast(ex.ex, e); PR_BASE[ex.ex]=e; }
+  if(afterEdit) afterEdit();
 }
 function fireToast(name, val){
   prFiredSession.add(name);
@@ -263,6 +264,50 @@ function openAch(a){
   scrim.classList.add('show');
 }
 
+// ---- session completion ("Finish workout") ----
+let finCache={};
+async function loadFin(wk,day){ const k='bts:fin:w'+wk+':'+day; if(k in finCache) return finCache[k];
+  let v=null; try{ const r=await window.storage.get(k,false); if(r&&r.value) v=JSON.parse(r.value); }catch(_){}
+  finCache[k]=v; return v; }
+async function daySummary(wk,day){
+  const exs=DATA.weeks[wk-1].days[day]; const log=await loadDay(wk,day);
+  let done=0, sets=0, vol=0, bestE=0, bestEx='';
+  exs.forEach((ex,i)=>{ const rec=log[i]; if(!rec) return; if(rec.done) done++;
+    (rec.sets||[]).forEach(st=>{ const w=parseFloat(st.w), r=parseFloat(st.r); if(w>0&&r>0){
+      sets++; vol+=w*r; const e=Math.round(w*(1+r/30)); if(e>bestE){ bestE=e; bestEx=ex.ex; } } }); });
+  return {total:exs.length, done, sets, vol:Math.round(vol), bestE, bestEx};
+}
+function showWorkoutSummary(wk,day,fin){
+  const dm=DAYS.find(x=>x.k===day);
+  (async()=>{ const s=await daySummary(wk,day);
+    sheet.innerHTML=`<div class="grab"></div><h2>Workout complete</h2>`
+      +`<p>${dm.dow} · ${dm.typ} · Week ${wk}${fin&&fin.at?` · saved ${new Date(fin.at).toLocaleDateString()}`:''}</p>`
+      +`<div class="summgrid">`
+      +`<div class="scell"><div class="sv">${s.done}/${s.total}</div><div class="sl">movements done</div></div>`
+      +`<div class="scell"><div class="sv">${s.sets}</div><div class="sl">sets logged</div></div>`
+      +`<div class="scell"><div class="sv">${s.vol.toLocaleString()}</div><div class="sl">lb volume</div></div>`
+      +`<div class="scell"><div class="sv">${s.bestE||'–'}</div><div class="sl">top est. 1RM</div></div></div>`
+      +(s.bestEx?`<p style="text-align:center">Top lift · <b style="color:var(--text)">${esc(s.bestEx)}</b></p>`:'')
+      +`<button class="databtn" id="summClose" style="margin-top:14px">Close</button>`;
+    scrim.classList.add('show');
+  })();
+}
+async function finishWorkout(){
+  const k='bts:fin:w'+state.wk+':'+state.day; const fin={at:new Date().toISOString()};
+  try{ await window.storage.set(k, JSON.stringify(fin), false); }catch(_){}
+  finCache[k]=fin;
+  await renderAll();
+  showWorkoutSummary(state.wk, state.day, fin);
+}
+function summaryText(ex, rec){
+  rec=rec||{};
+  const logged=(rec.sets||[]).filter(st=>st&&((st.w&&st.w!=='')||(st.r&&st.r!=='')));
+  const parts=logged.map(st=>`${st.w||'–'}×${st.r||'–'}`).join(' · ');
+  if(rec.done) return `<b>✓ done</b>${parts?' · '+parts:''}`;
+  if(logged.length) return 'in progress · '+parts;
+  return 'Not logged yet';
+}
+
 /* ---------- render ---------- */
 function curWeek(){ return DATA.weeks[state.wk-1]; }
 
@@ -283,10 +328,11 @@ async function renderTabs(){
   for(const d of DAYS){
     const exs=curWeek().days[d.k];
     const log=await loadDay(state.wk,d.k);
+    const fin=await loadFin(state.wk,d.k);
     let done=0; exs.forEach((_,i)=>{ if(log[i]&&log[i].done) done++; });
     const el=document.createElement('button');
     el.className='tab'+(state.day===d.k?' on':''); el.dataset.d=d.k;
-    el.innerHTML=`<div class="ring">${done}/${exs.length}</div><div class="dow">${d.dow}</div><div class="typ">${d.typ}</div>`;
+    el.innerHTML=`${fin?'<div class="tfin">✓</div>':''}<div class="ring">${done}/${exs.length}</div><div class="dow">${d.dow}</div><div class="typ">${d.typ}</div>`;
     el.onclick=()=>{ state.day=d.k; renderAll(); };
     tabs.appendChild(el);
   }
@@ -312,7 +358,13 @@ async function renderList(){
   const cards=[];
   // accordion: open the first not-yet-done lift (all done -> all collapsed)
   let openIdx=exs.findIndex((_,i)=>!(log[i]&&log[i].done));
-  function setOpen(idx){ openIdx=(openIdx===idx?-1:idx); cards.forEach((c,i)=>c.classList.toggle('collapsed', i!==openIdx)); }
+  function updateStatuses(){
+    const dc=dayCache[keyFor(state.wk,state.day)]||{};
+    cards.forEach((c,i)=>{ const r=dc[i]||{}; c.classList.toggle('done', !!r.done);
+      const cs=c.querySelector('.csum'); if(cs) cs.innerHTML=summaryText(exs[i], r); });
+  }
+  function setOpen(idx){ updateStatuses(); openIdx=(openIdx===idx?-1:idx); cards.forEach((c,i)=>c.classList.toggle('collapsed', i!==openIdx)); }
+  afterEdit=updateStatuses;
   exs.forEach((ex,idx)=>{
     const rec=log[idx]||{done:false,sets:[]};
     const nSets=ex.sets||2;
@@ -334,7 +386,7 @@ async function renderList(){
     card.innerHTML=`
       <div class="chead">
         <div class="cnum">${String(idx+1).padStart(2,'0')}</div>
-        <div class="cttl">${nameHTML}<div class="tags">${tags}</div></div>
+        <div class="cttl">${nameHTML}<div class="tags">${tags}</div><div class="csum"></div></div>
         <span class="ccol">▾</span>
         <button class="done${rec.done?' on':''}" data-done="${idx}" aria-label="Mark done">✓</button>
       </div>
@@ -364,8 +416,15 @@ async function renderList(){
         const last=s===nSets-1, pv=prevSets[s];
         const wPre=(pv&&pv.w!=null&&pv.w!=='')?pv.w:null;
         const rPre=(pv&&pv.r!=null&&pv.r!=='')?pv.r:8;
+        const sv=(liveRec(idx).sets||[])[s]||{};
+        const hasVal=(sv.w&&sv.w!=='')||(sv.r&&sv.r!=='');
         const hint=(pv&&(pv.w||pv.r))?`<span class="lasthint">last wk <b>${esc(pv.w||'–')}</b> × ${esc(pv.r||'–')}</span>`:'';
-        const ws=el('div','workset',`<div class="worktop"><span class="sn${last?' last':''}">Set ${s+1}</span>${last?'<span class="failpill">FAILURE</span>':''}${hint}</div>`);
+        const clearBtn=hasVal?`<button class="setclear" aria-label="Clear this set" title="Clear this set">✕</button>`:'';
+        const right=(hint||clearBtn)?`<span class="wtright">${hint}${clearBtn}</span>`:'';
+        const ws=el('div','workset',`<div class="worktop"><span class="sn${last?' last':''}">Set ${s+1}</span>${last?'<span class="failpill">FAILURE</span>':''}${right}</div>`);
+        const cb=ws.querySelector('.setclear');
+        if(cb) cb.addEventListener('click',()=>{ const r=liveRec(idx); if(r.sets&&r.sets[s]) r.sets[s]={};
+          queueSave(state.wk,state.day); renderSets(); refreshCounts(); updateStatuses(); });
         const fields=el('div','workfields');
         const wf=el('div',null,'<div class="fieldlbl">Weight</div>');
         wf.appendChild(makeWeightStepper(idx, ex, s, resType, wPre, s===0?()=>{
@@ -383,12 +442,22 @@ async function renderList(){
 
     card.querySelector('[data-done]').addEventListener('click',function(){
       const r=liveRec(idx); r.done=!r.done; this.classList.toggle('on',r.done);
-      queueSave(state.wk,state.day); refreshCounts();
+      queueSave(state.wk,state.day); refreshCounts(); updateStatuses();
     });
     card.querySelector('[data-more]').addEventListener('click',function(){
       const mb=document.getElementById('mb-'+idx); mb.classList.toggle('open'); this.classList.toggle('open');
     });
   });
+  updateStatuses();
+
+  // finish-workout bar
+  const fin=await loadFin(state.wk, state.day);
+  const bar=el('div','finbar');
+  bar.innerHTML=fin
+    ? `<button class="finbtn done" id="finBtn">✓ Workout saved — view summary</button>`
+    : `<button class="finbtn" id="finBtn">Finish workout</button>`;
+  bar.querySelector('#finBtn').addEventListener('click',()=> fin? showWorkoutSummary(state.wk,state.day,fin) : finishWorkout());
+  list.appendChild(bar);
 }
 
 function refreshCounts(){
@@ -519,7 +588,7 @@ function restoreData(text){
   if(!keys.length){ alert('No saved data found in that file.'); return; }
   if(!confirm('Restore '+keys.length+' saved day(s)? This replaces your current logs.')) return;
   (async()=>{ for(const k of keys){ try{ await window.storage.set(k, JSON.stringify(data[k]), false);}catch(_){} }
-    dayCache={}; prFiredSession.clear(); scrim.classList.remove('show'); await renderAll(); await computePRBase();
+    dayCache={}; finCache={}; prFiredSession.clear(); scrim.classList.remove('show'); await renderAll(); await computePRBase();
     try{ if(document.getElementById('bodyView').style.display!=='none'){ await renderProg(); await renderShelf(); } }catch(_){}
     alert('Backup restored.'); })();
 }
@@ -529,7 +598,7 @@ sheet.addEventListener('click',async(e)=>{
     if(!confirm('Erase every logged set across all 12 weeks? This cannot be undone.')) return;
     try{ const r=await window.storage.list('bts:', false); for(const k of ((r&&r.keys)||[])){ try{ await window.storage.delete(k,false);}catch(_){} } }
     catch(_){ for(let wk=1;wk<=12;wk++) for(const d of ['mon','fri','sat']){ try{ await window.storage.delete(keyFor(wk,d),false);}catch(__){} } }
-    dayCache={}; prFiredSession.clear(); scrim.classList.remove('show'); await renderAll(); await computePRBase(); renderShelf();
+    dayCache={}; finCache={}; prFiredSession.clear(); scrim.classList.remove('show'); await renderAll(); await computePRBase(); renderShelf();
   } else if(id==='expJson'){ exportJSON(); }
   else if(id==='expCsv'){ exportCSV(); }
   else if(id==='impBtn'){ const f=document.getElementById('impFile'); if(f) f.click(); }
@@ -715,7 +784,7 @@ document.getElementById('seg').onclick=e=>{ const b=e.target.closest('.segbtn');
 document.getElementById('shelf').addEventListener('click',e=>{
   const m=e.target.closest('[data-ach]'); if(m) openAch(shelfList[+m.dataset.ach]);
 });
-sheet.addEventListener('click',e=>{ if(e.target.id==='achClose') scrim.classList.remove('show'); });
+sheet.addEventListener('click',e=>{ if(e.target.id==='achClose'||e.target.id==='summClose') scrim.classList.remove('show'); });
 
 /* ---------- boot ---------- */
 (async()=>{
