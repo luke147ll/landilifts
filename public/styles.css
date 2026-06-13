@@ -89,6 +89,13 @@ header{position:sticky;top:0;z-index:30;background:linear-gradient(180deg,var(--
 .done.on{background:var(--green);border-color:var(--green);color:var(--crust);font-weight:700}
 .done:active{transform:scale(.85)}
 
+/* collapse / accordion */
+.chead{cursor:pointer}
+.ccol{align-self:center;color:var(--ovl);font-size:12px;transition:transform .2s;flex-shrink:0}
+.card.collapsed .ccol{transform:rotate(-90deg)}
+.card.collapsed .sets,.card.collapsed .more{display:none}
+.card.collapsed .chead{padding-bottom:13px}
+
 /* ---------- working-set blocks (steppers) ---------- */
 .sets{padding:4px 14px 8px}
 .blocklbl{display:flex;align-items:center;gap:8px;font-family:var(--disp);font-weight:700;font-size:10px;

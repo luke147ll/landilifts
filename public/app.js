@@ -309,6 +309,10 @@ async function renderList(){
     `<span class="prog"><b>${done}</b>/${exs.length} done</span>`;
 
   const list=document.getElementById('list'); list.innerHTML='';
+  const cards=[];
+  // accordion: open the first not-yet-done lift (all done -> all collapsed)
+  let openIdx=exs.findIndex((_,i)=>!(log[i]&&log[i].done));
+  function setOpen(idx){ openIdx=(openIdx===idx?-1:idx); cards.forEach((c,i)=>c.classList.toggle('collapsed', i!==openIdx)); }
   exs.forEach((ex,idx)=>{
     const rec=log[idx]||{done:false,sets:[]};
     const nSets=ex.sets||2;
@@ -331,6 +335,7 @@ async function renderList(){
       <div class="chead">
         <div class="cnum">${String(idx+1).padStart(2,'0')}</div>
         <div class="cttl">${nameHTML}<div class="tags">${tags}</div></div>
+        <span class="ccol">▾</span>
         <button class="done${rec.done?' on':''}" data-done="${idx}" aria-label="Mark done">✓</button>
       </div>
       <div class="sets" id="setbox-${idx}"></div>
@@ -344,6 +349,12 @@ async function renderList(){
         </div>
       </div>`;
     list.appendChild(card);
+    cards.push(card);
+    if(idx!==openIdx) card.classList.add('collapsed');
+    card.querySelector('.chead').addEventListener('click',e=>{
+      if(e.target.closest('[data-done]')||e.target.closest('a')) return;
+      setOpen(idx);
+    });
 
     const setbox=card.querySelector('#setbox-'+idx);
     function renderSets(){
