@@ -20,7 +20,7 @@
 <body>
 <header>
   <div class="hbar">
-    <div class="brand">BTS<span class="b2">/tracker</span></div>
+    <div class="brand">Landi<span class="b2">/lifts</span></div>
     <div class="spacer"></div>
     <button class="iconbtn" id="guideBtn" aria-label="Guide &amp; reference">i</button>
   </div>
@@ -50,6 +50,7 @@
   </div>
 
   <div id="bodyView" style="display:none">
+    <div class="shelf" id="shelf"></div>
     <div class="bodycard">
       <div class="bcTop">
         <div class="bcEyebrow">Progression</div>
@@ -76,6 +77,14 @@
     <button class="t-se" id="tStart">Start</button>
     <button class="t-rs" id="tReset">Reset</button>
     <button class="t-cl" id="tClose">✕</button>
+  </div>
+</div>
+
+<div class="toast" id="prToast">
+  <div class="medal sm" id="prMedal"></div>
+  <div class="tx">
+    <div class="te">★ New personal record</div>
+    <div class="tt" id="prToastBody"></div>
   </div>
 </div>
 

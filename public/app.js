@@ -62,6 +62,206 @@ function techLabel(t){ if(!t||t==='N/A') return null; return t
   .replace('Failure + LLPs (Extend set)','Failure + lengthened partials')
   .replace('Static Stretch (30s)','30s loaded stretch'); }
 function esc(s){ return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function el(tag,cls,html){ const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; }
+
+/* ===================== v2: steppers, PR, gamification ===================== */
+const BAR=45;
+const WRES={
+  machine:   {label:'Machine',   step:5, chips:[2.5,5,10,25],          pair:false},
+  plates:    {label:'Barbell',   step:5, chips:[45,25,15,10,5,2.5,1.25],pair:true },
+  dumbbell:  {label:'Dumbbell',  step:5, chips:[2.5,5,10],             pair:false},
+  bodyweight:{label:'Bodyweight',step:5, chips:[5,10,25,45],           pair:false},
+};
+const RES_ORDER=['machine','plates','dumbbell','bodyweight'];
+const RES_OVERRIDE={
+  'Leg Press':'plates','Wide-Grip Pull-Up':'bodyweight','Neutral-Grip Pull-Up':'bodyweight',
+  '45° Hyperextension':'bodyweight','Nordic Ham Curl':'bodyweight','Bench Dip':'bodyweight','Reverse Nordic':'bodyweight',
+};
+function resTypeFor(name){
+  if(RES_OVERRIDE[name]) return RES_OVERRIDE[name];
+  const s=(name||'').toLowerCase();
+  if(/\bdb\b|dumbbell|goblet/.test(s)) return 'dumbbell';
+  if(/pull-up|chin-up|\bdip\b|hyperextension|nordic|sissy/.test(s)) return 'bodyweight';
+  if(/barbell|smith|\brdl\b|bench press|back squat|front squat|leg press|deadlift|snatch/.test(s)) return 'plates';
+  return 'machine';
+}
+const e1rm=(w,r)=> (w>0&&r>0)? Math.round(w*(1+r/30)) : 0;
+
+// live mutable record for the current day (mutations persist via queueSave)
+function liveRec(idx){ const k=keyFor(state.wk,state.day); const dc=dayCache[k]||(dayCache[k]={}); return dc[idx]||(dc[idx]={done:false,sets:[]}); }
+
+// ---- PR detection ----
+let PR_BASE={}, prFiredSession=new Set(), toastTimer=null;
+async function computePRBase(){
+  PR_BASE={};
+  let all={}; try{ all=await gatherAll(); }catch(_){}
+  for(const k in all){ const m=k.match(/w(\d+):(\w+)/); if(!m) continue;
+    const exs=(DATA.weeks[+m[1]-1]&&DATA.weeks[+m[1]-1].days[m[2]])||[]; const log=all[k]||{};
+    exs.forEach((ex,i)=>{ const rec=log[i]; if(!rec||!rec.sets) return;
+      rec.sets.forEach(st=>{ const e=e1rm(parseFloat(st.w),parseFloat(st.r)); if(e>(PR_BASE[ex.ex]||0)) PR_BASE[ex.ex]=e; }); });
+  }
+}
+function setField(idx, ex, s, f, val){
+  const r=liveRec(idx);
+  while(r.sets.length<=s) r.sets.push({});
+  r.sets[s][f]=val;
+  queueSave(state.wk,state.day);
+  const sv=r.sets[s]; const e=e1rm(parseFloat(sv.w),parseFloat(sv.r));
+  if(e>(PR_BASE[ex.ex]||0) && !prFiredSession.has(ex.ex)){ fireToast(ex.ex, e); PR_BASE[ex.ex]=e; }
+}
+function fireToast(name, val){
+  prFiredSession.add(name);
+  const pm=document.getElementById('prMedal'); pm.className='medal t-gold'; pm.style.width='46px'; pm.innerHTML=medalMarkup('▲','gold',40);
+  document.getElementById('prToastBody').innerHTML=esc(name)+' · <b>'+val+' lb</b> est. 1RM';
+  const t=document.getElementById('prToast'); t.classList.add('show');
+  if(navigator.vibrate) navigator.vibrate(60);
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove('show'),3800);
+}
+
+// ---- WeightStepper (tap −/+ · equipment chips · tap-to-type) ----
+function makeWeightStepper(idx, ex, s, resType, prefill, onType){
+  const cfg=WRES[resType]||WRES.machine; let sub=false;
+  const wrap=el('div','wstep');
+  const get=()=>{ const sv=(liveRec(idx).sets||[])[s]||{}; return (sv.w!==undefined&&sv.w!==''&&sv.w!=null); };
+  const cur=()=>{ const sv=(liveRec(idx).sets||[])[s]||{}; return get()? Number(sv.w) : (prefill!=null?Number(prefill):0); };
+  const top=el('div','wtop');
+  const minus=el('button','wbig','−'), plus=el('button','wbig','+');
+  const plate=el('div','wplate');
+  function draw(){
+    const touched=get(), v=cur();
+    plate.classList.toggle('touched',touched);
+    const ps=resType==='plates'? Math.max(0,(v-BAR)/2):null;
+    plate.innerHTML=`<div class="wrow">${resType==='bodyweight'?'<span class="wbw">BW +</span>':''}`
+      +`<span class="wnum">${touched?esc(String(v)):(prefill!=null?esc(String(prefill)):'–')}</span>`
+      +`<span class="wunit">lb</span></div>`
+      +(ps!=null&&v>0?`<div class="wside">bar 45 + ${ps%1===0?ps:ps.toFixed(2)}/side</div>`:'');
+  }
+  function commit(n){ if(n<0)n=0; setField(idx,ex,s,'w',String(Math.round(n*100)/100)); draw(); }
+  plate.addEventListener('click',()=>{
+    if(plate.querySelector('input')) return;
+    plate.innerHTML=`<input inputmode="decimal" value="${get()?esc(String(cur())):''}">`;
+    const inp=plate.querySelector('input'); inp.focus(); inp.select();
+    const fin=()=>{ const v=inp.value.trim(); if(v!=='') setField(idx,ex,s,'w',String(Number(v)||0)); draw(); };
+    inp.addEventListener('blur',fin);
+    inp.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); inp.blur(); } });
+  });
+  minus.onclick=()=>commit(cur()-cfg.step); plus.onclick=()=>commit(cur()+cfg.step);
+  top.append(minus,plate,plus); draw();
+  const ctrl=el('div','wctrl');
+  const eq=el('button','weq'+(onType?' cyc':''), esc(cfg.label)+(onType?' <span class="car">▾</span>':''));
+  if(onType) eq.onclick=onType;
+  const tog=el('div','wtog'); const addB=el('button','add on','+'), subB=el('button','sub','−');
+  const hint=el('span','whint', cfg.pair?'tap a plate (pair)':'quick add');
+  const chips=el('div','wchips');
+  function redrawChips(){ chips.innerHTML=''; cfg.chips.forEach(c=>{ const b=el('button','wchip',(sub?'−':'+')+c);
+    b.onclick=()=>commit(cur()+(cfg.pair?c*2:c)*(sub?-1:1)); chips.appendChild(b); }); }
+  function setSub(v){ sub=v; addB.className='add'+(sub?'':' on'); subB.className='sub'+(sub?' on':'');
+    hint.textContent=cfg.pair?'tap a plate (pair)':('quick '+(sub?'remove':'add')); chips.classList.toggle('sub',sub); redrawChips(); }
+  addB.onclick=()=>setSub(false); subB.onclick=()=>setSub(true); tog.append(addB,subB);
+  ctrl.append(eq,tog,hint); redrawChips();
+  wrap.append(top,ctrl,chips); return wrap;
+}
+
+// ---- reps Stepper ----
+function makeRepsStepper(idx, ex, s, prefill){
+  const wrap=el('div','stepper');
+  const minus=el('button','sbtn','−'), plus=el('button','sbtn','+'), plate=el('div','splate');
+  const get=()=>{ const sv=(liveRec(idx).sets||[])[s]||{}; return (sv.r!==undefined&&sv.r!==''&&sv.r!=null); };
+  const cur=()=>{ const sv=(liveRec(idx).sets||[])[s]||{}; return get()? Number(sv.r) : (prefill!=null?Number(prefill):0); };
+  function draw(){ const t=get(); plate.classList.toggle('touched',t);
+    plate.innerHTML=`<span class="snum">${t?esc(String(cur())):(prefill!=null?esc(String(prefill)):'–')}</span><span class="sunit">reps</span>`; }
+  function commit(n){ if(n<0)n=0; if(n>999)n=999; setField(idx,ex,s,'r',String(n)); draw(); }
+  plate.addEventListener('click',()=>{
+    if(plate.querySelector('input')) return;
+    plate.innerHTML=`<input inputmode="numeric" value="${get()?esc(String(cur())):''}"><span class="sunit">reps</span>`;
+    const inp=plate.querySelector('input'); inp.focus(); inp.select();
+    const fin=()=>{ const v=inp.value.trim(); if(v!=='') setField(idx,ex,s,'r',String(Number(v)||0)); draw(); };
+    inp.addEventListener('blur',fin);
+    inp.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); inp.blur(); } });
+  });
+  minus.onclick=()=>commit(cur()-1); plus.onclick=()=>commit(cur()+1);
+  wrap.append(minus,plate,plus); draw(); return wrap;
+}
+
+// ---- Medals + achievements ----
+const TIER_COLOR={bronze:'var(--peach)',silver:'var(--sub1)',gold:'var(--yellow)',locked:'var(--ovl)'};
+function medalMarkup(glyph, tier, size){
+  const locked=tier==='locked';
+  return `<div class="mwrap" style="width:${size}px;height:${size}px">`
+    +`<div class="mplate"></div><div class="minner"></div>`
+    +`<div class="mglyph" style="font-size:${(size*0.34).toFixed(1)}px">${locked?'✦':esc(glyph)}</div>`
+    +(locked?'':`<div class="mpip">${tier}</div>`)+`</div>`;
+}
+const ACHIEVEMENTS=[
+  {id:'pr',     glyph:'▲', name:'Record Breaker', unit:'PRs',       tiers:[1,5,15],            blurb:'Set a new estimated 1RM on any lift.',                 derive:a=>a.prEvents},
+  {id:'streak', glyph:'◆', name:'On a Roll',      unit:'wk streak', tiers:[2,4,8],             blurb:'Log training across consecutive weeks without a gap.', derive:a=>a.streak},
+  {id:'volume', glyph:'▣', name:'Heavy Lifter',   unit:'lb total',  tiers:[10000,50000,150000],blurb:'Total weight moved across all logged sets.',          derive:a=>a.volume},
+  {id:'weeks',  glyph:'✓', name:'Clean Sweep',    unit:'weeks done',tiers:[1,5,12],            blurb:'Complete every exercise across a full training week.', derive:a=>a.fullWeeks},
+  {id:'consist',glyph:'◎', name:'Three for Three',unit:'x all-3',   tiers:[1,4,12],            blurb:'Hit all three training days in the same week.',       derive:a=>a.allThree},
+  {id:'failure',glyph:'⚑', name:'To Failure',     unit:'earned',    tiers:[1,25,100],          blurb:'Take a final working set to a true RPE 10.',          derive:a=>a.doneCount},
+  {id:'myo',    glyph:'⚡', name:'Myo Master',     unit:'myo sets',  tiers:[1,15,50],           blurb:'Complete a myo-rep extended set.',                    derive:a=>a.myoDone},
+];
+function tierOf(a){ if(a.value>=a.tiers[2])return'gold'; if(a.value>=a.tiers[1])return'silver'; if(a.value>=a.tiers[0])return'bronze'; return'locked'; }
+function nextThreshold(a){ for(const th of a.tiers) if(a.value<th) return th; return null; }
+async function computeAchievements(){
+  let all={}; try{ all=await gatherAll(); }catch(_){}
+  let volume=0, doneCount=0, myoDone=0, prEvents=0; const exBest={};
+  const weekHasLog={}, weekDayDone={};
+  for(let wk=1; wk<=12; wk++){
+    for(const day of ['mon','fri','sat']){
+      const log=all[keyFor(wk,day)]; if(!log) continue;
+      const exs=(DATA.weeks[wk-1]&&DATA.weeks[wk-1].days[day])||[];
+      exs.forEach((ex,i)=>{ const rec=log[i]; if(!rec) return;
+        if(rec.done){ doneCount++; if(/myo/i.test(ex.tech||'')) myoDone++; (weekDayDone[wk]=weekDayDone[wk]||{})[day]=true; }
+        (rec.sets||[]).forEach(st=>{ const w=parseFloat(st.w), r=parseFloat(st.r); if(w>0&&r>0){
+          volume+=w*r; const e=w*(1+r/30);
+          if(exBest[ex.ex]===undefined) exBest[ex.ex]=e; else if(e>exBest[ex.ex]){ prEvents++; exBest[ex.ex]=e; }
+          weekHasLog[wk]=true;
+        } else if(rec.done){ weekHasLog[wk]=true; } });
+        if(rec.done) weekHasLog[wk]=true;
+      });
+    }
+  }
+  let fullWeeks=0, allThree=0, streak=0, run=0;
+  for(let wk=1; wk<=12; wk++){
+    if(weekHasLog[wk]){ run++; if(run>streak) streak=run; } else run=0;
+    const dd=weekDayDone[wk]||{}; if(dd.mon&&dd.fri&&dd.sat) allThree++;
+    let full=true, anyEx=false;
+    for(const day of ['mon','fri','sat']){ const exs=(DATA.weeks[wk-1]&&DATA.weeks[wk-1].days[day])||[]; const log=all[keyFor(wk,day)]||{};
+      exs.forEach((ex,i)=>{ anyEx=true; if(!(log[i]&&log[i].done)) full=false; }); }
+    if(anyEx&&full) fullWeeks++;
+  }
+  return {volume:Math.round(volume), doneCount, myoDone, prEvents, streak, allThree, fullWeeks};
+}
+let shelfList=[];
+async function renderShelf(){
+  const shelf=document.getElementById('shelf'); if(!shelf) return;
+  const agg=await computeAchievements();
+  shelfList=ACHIEVEMENTS.map(a=>({...a, value:a.derive(agg)}));
+  const earned=shelfList.filter(a=>tierOf(a)!=='locked').length;
+  const rows=shelfList.map((a,i)=>{ const tier=tierOf(a), next=nextThreshold(a);
+    const sub=tier==='gold'?'max tier':(next!=null? a.value+' / '+next : String(a.value));
+    return `<div class="medal t-${tier} tap" data-ach="${i}" style="width:80px">${medalMarkup(a.glyph,tier,64)}`
+      +`<div class="mcap"><div class="mlabel">${esc(a.name)}</div><div class="msub">${esc(sub)}</div></div></div>`;
+  }).join('');
+  shelf.innerHTML=`<div class="shelfhead"><span class="shelfttl">Achievements</span>`
+    +`<span class="shelfcount"><b>${earned}</b> / ${shelfList.length} unlocked</span></div>`
+    +`<div class="shelfrow">${rows}</div>`;
+}
+function openAch(a){
+  if(!a) return; const tier=tierOf(a), next=nextThreshold(a); const names=['bronze','silver','gold'];
+  const track=names.map((tn,i)=>{ const reached=a.value>=a.tiers[i]; const col=reached?TIER_COLOR[tn]:'var(--s1)';
+    return `<div class="tierbox${reached?' on':''}" style="color:${col}"><div class="tn" style="color:${reached?TIER_COLOR[tn]:'var(--ovl)'}">${tn}</div>`
+      +`<div class="tv">${a.tiers[i].toLocaleString()} ${esc(a.unit)}</div></div>`; }).join('');
+  const prog=tier==='gold'?'Max tier reached — legend.'
+    :`Currently <b>${a.value.toLocaleString()}</b> ${esc(a.unit)}${next!=null?` · <b>${(next-a.value).toLocaleString()}</b> to ${names[a.tiers.indexOf(next)]}`:''}.`;
+  sheet.innerHTML=`<div class="grab"></div>`
+    +`<div class="achdetail"><div class="medal t-${tier}" style="width:108px">${medalMarkup(a.glyph,tier,92)}</div>`
+    +`<h2 style="margin:10px 0 0">${esc(a.name)}</h2><div class="achblurb">${esc(a.blurb)}</div></div>`
+    +`<div class="tiertrack">${track}</div><div class="achprog">${prog}</div>`
+    +`<button class="databtn" id="achClose" style="margin-top:16px">Close</button>`;
+  scrim.classList.add('show');
+}
 
 /* ---------- render ---------- */
 function curWeek(){ return DATA.weeks[state.wk-1]; }
@@ -126,29 +326,14 @@ async function renderList(){
       ? `<a class="exname" href="${ex.demo}" target="_blank" rel="noopener">${esc(ex.ex)}<span class="play">▶ demo</span></a>`
       : `<span class="exname">${esc(ex.ex)}</span>`;
 
-    // set rows
     const prevSets = prevByName[ex.ex]||[];
-    let setHTML=`<div class="colhead"><span>set</span><span>weight</span><span>reps</span></div>`;
-    for(let s=0;s<nSets;s++){
-      const last = s===nSets-1;
-      const sv=(rec.sets&&rec.sets[s])||{};
-      const pv=prevSets[s];
-      const prevHint = (pv&&(pv.w||pv.r)) ? `<div class="prev">last wk: <b>${esc(pv.w||'–')}</b> × ${esc(pv.r||'–')}</div>`:'';
-      setHTML+=`<div class="setrow${last?' lastset':''}">
-        <div class="slabel${last?' last':''}">Set ${s+1}${last?'<div class="pill">FAILURE</div>':''}</div>
-        <div class="ig"><input inputmode="decimal" data-i="${idx}" data-s="${s}" data-f="w" value="${esc(sv.w||'')}" placeholder="–"><span class="unit">lb</span></div>
-        <div class="ig"><input inputmode="numeric" data-i="${idx}" data-s="${s}" data-f="r" value="${esc(sv.r||'')}" placeholder="–"><span class="unit">reps</span></div>
-        ${prevHint}
-      </div>`;
-    }
-
     card.innerHTML=`
       <div class="chead">
         <div class="cnum">${String(idx+1).padStart(2,'0')}</div>
         <div class="cttl">${nameHTML}<div class="tags">${tags}</div></div>
         <button class="done${rec.done?' on':''}" data-done="${idx}" aria-label="Mark done">✓</button>
       </div>
-      <div class="sets">${setHTML}</div>
+      <div class="sets" id="setbox-${idx}"></div>
       <div class="more">
         <button class="mtog" data-more="${idx}"><span class="chev">›</span> Substitutions &amp; coaching notes</button>
         <div class="mbody" id="mb-${idx}">
@@ -159,34 +344,38 @@ async function renderList(){
         </div>
       </div>`;
     list.appendChild(card);
-  });
 
-  // wire inputs
-  list.querySelectorAll('input').forEach(inp=>{
-    inp.addEventListener('input',()=>{
-      const i=+inp.dataset.i, s=+inp.dataset.s, f=inp.dataset.f;
-      const k=keyFor(state.wk,state.day); const dc=dayCache[k]||(dayCache[k]={});
-      const r=dc[i]||(dc[i]={done:false,sets:[]});
-      while(r.sets.length<=s) r.sets.push({});
-      r.sets[s][f]=inp.value;
-      queueSave(state.wk,state.day);
+    const setbox=card.querySelector('#setbox-'+idx);
+    function renderSets(){
+      const resType=liveRec(idx).resType||resTypeFor(ex.ex);
+      setbox.innerHTML='<div class="blocklbl"><span class="bln">Working sets</span></div>';
+      for(let s=0;s<nSets;s++){
+        const last=s===nSets-1, pv=prevSets[s];
+        const wPre=(pv&&pv.w!=null&&pv.w!=='')?pv.w:null;
+        const rPre=(pv&&pv.r!=null&&pv.r!=='')?pv.r:8;
+        const hint=(pv&&(pv.w||pv.r))?`<span class="lasthint">last wk <b>${esc(pv.w||'–')}</b> × ${esc(pv.r||'–')}</span>`:'';
+        const ws=el('div','workset',`<div class="worktop"><span class="sn${last?' last':''}">Set ${s+1}</span>${last?'<span class="failpill">FAILURE</span>':''}${hint}</div>`);
+        const fields=el('div','workfields');
+        const wf=el('div',null,'<div class="fieldlbl">Weight</div>');
+        wf.appendChild(makeWeightStepper(idx, ex, s, resType, wPre, s===0?()=>{
+          const r=liveRec(idx); r.resType=RES_ORDER[(RES_ORDER.indexOf(resType)+1)%RES_ORDER.length];
+          queueSave(state.wk,state.day); renderSets();
+        }:null));
+        const rf=el('div','repsrow','<div class="rl"><div class="fieldlbl">Reps</div></div>');
+        rf.appendChild(makeRepsStepper(idx, ex, s, rPre));
+        fields.append(wf, rf);
+        ws.appendChild(fields);
+        setbox.appendChild(ws);
+      }
+    }
+    renderSets();
+
+    card.querySelector('[data-done]').addEventListener('click',function(){
+      const r=liveRec(idx); r.done=!r.done; this.classList.toggle('on',r.done);
+      queueSave(state.wk,state.day); refreshCounts();
     });
-  });
-  list.querySelectorAll('[data-done]').forEach(b=>{
-    b.addEventListener('click',()=>{
-      const i=+b.dataset.done;
-      const k=keyFor(state.wk,state.day); const dc=dayCache[k]||(dayCache[k]={});
-      const r=dc[i]||(dc[i]={done:false,sets:[]});
-      r.done=!r.done; b.classList.toggle('on',r.done);
-      queueSave(state.wk,state.day);
-      // update counters without full re-render
-      refreshCounts();
-    });
-  });
-  list.querySelectorAll('[data-more]').forEach(b=>{
-    b.addEventListener('click',()=>{
-      const mb=document.getElementById('mb-'+b.dataset.more);
-      mb.classList.toggle('open'); b.classList.toggle('open');
+    card.querySelector('[data-more]').addEventListener('click',function(){
+      const mb=document.getElementById('mb-'+idx); mb.classList.toggle('open'); this.classList.toggle('open');
     });
   });
 }
@@ -319,8 +508,8 @@ function restoreData(text){
   if(!keys.length){ alert('No saved data found in that file.'); return; }
   if(!confirm('Restore '+keys.length+' saved day(s)? This replaces your current logs.')) return;
   (async()=>{ for(const k of keys){ try{ await window.storage.set(k, JSON.stringify(data[k]), false);}catch(_){} }
-    dayCache={}; scrim.classList.remove('show'); await renderAll();
-    try{ if(document.getElementById('bodyView').style.display!=='none') await renderProg(); }catch(_){}
+    dayCache={}; prFiredSession.clear(); scrim.classList.remove('show'); await renderAll(); await computePRBase();
+    try{ if(document.getElementById('bodyView').style.display!=='none'){ await renderProg(); await renderShelf(); } }catch(_){}
     alert('Backup restored.'); })();
 }
 sheet.addEventListener('click',async(e)=>{
@@ -329,7 +518,7 @@ sheet.addEventListener('click',async(e)=>{
     if(!confirm('Erase every logged set across all 12 weeks? This cannot be undone.')) return;
     try{ const r=await window.storage.list('bts:', false); for(const k of ((r&&r.keys)||[])){ try{ await window.storage.delete(k,false);}catch(_){} } }
     catch(_){ for(let wk=1;wk<=12;wk++) for(const d of ['mon','fri','sat']){ try{ await window.storage.delete(keyFor(wk,d),false);}catch(__){} } }
-    dayCache={}; scrim.classList.remove('show'); renderAll();
+    dayCache={}; prFiredSession.clear(); scrim.classList.remove('show'); await renderAll(); await computePRBase(); renderShelf();
   } else if(id==='expJson'){ exportJSON(); }
   else if(id==='expCsv'){ exportCSV(); }
   else if(id==='impBtn'){ const f=document.getElementById('impFile'); if(f) f.click(); }
@@ -507,12 +696,19 @@ document.getElementById('seg').onclick=e=>{ const b=e.target.closest('.segbtn');
   document.getElementById('bodyView').style.display=train?'none':'';
   document.getElementById('fab').style.display=train?'':'none';
   document.getElementById('timer').classList.remove('show');
-  if(!train) renderProg();
+  if(!train){ renderProg(); renderShelf(); }
   window.scrollTo(0,0);
 };
+
+/* ---------- gamification wiring ---------- */
+document.getElementById('shelf').addEventListener('click',e=>{
+  const m=e.target.closest('[data-ach]'); if(m) openAch(shelfList[+m.dataset.ach]);
+});
+sheet.addEventListener('click',e=>{ if(e.target.id==='achClose') scrim.classList.remove('show'); });
 
 /* ---------- boot ---------- */
 (async()=>{
   progState.sel={type:'ex', name:DATA.weeks[0].days.mon[0].ex};
   await renderAll();
+  await computePRBase();
 })();
