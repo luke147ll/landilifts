@@ -360,7 +360,7 @@ async function renderList(){
   let openIdx=exs.findIndex((_,i)=>!(log[i]&&log[i].done));
   function updateStatuses(){
     const dc=dayCache[keyFor(state.wk,state.day)]||{};
-    cards.forEach((c,i)=>{ const r=dc[i]||{}; c.classList.toggle('done', !!r.done);
+    cards.forEach((c,i)=>{ const r=dc[i]||{}; c.classList.toggle('complete', !!r.done);
       const cs=c.querySelector('.csum'); if(cs) cs.innerHTML=summaryText(exs[i], r); });
   }
   function setOpen(idx){ updateStatuses(); openIdx=(openIdx===idx?-1:idx); cards.forEach((c,i)=>c.classList.toggle('collapsed', i!==openIdx)); }
@@ -391,6 +391,7 @@ async function renderList(){
         <button class="done${rec.done?' on':''}" data-done="${idx}" aria-label="Mark done">✓</button>
       </div>
       <div class="sets" id="setbox-${idx}"></div>
+      <div class="cmprow"><button class="cmpbtn" data-cmp="${idx}">Mark complete</button></div>
       <div class="more">
         <button class="mtog" data-more="${idx}"><span class="chev">›</span> Substitutions &amp; coaching notes</button>
         <div class="mbody" id="mb-${idx}">
@@ -440,10 +441,18 @@ async function renderList(){
     }
     renderSets();
 
-    card.querySelector('[data-done]').addEventListener('click',function(){
-      const r=liveRec(idx); r.done=!r.done; this.classList.toggle('on',r.done);
-      queueSave(state.wk,state.day); refreshCounts(); updateStatuses();
-    });
+    const doneBtn=card.querySelector('[data-done]'), cmpBtn=card.querySelector('[data-cmp]');
+    function refreshDone(){
+      const on=!!liveRec(idx).done;
+      doneBtn.classList.toggle('on',on);
+      cmpBtn.classList.toggle('complete',on);
+      cmpBtn.textContent=on?'✓ Completed':'Mark complete';
+      updateStatuses();
+    }
+    function toggleDone(){ const r=liveRec(idx); r.done=!r.done; queueSave(state.wk,state.day); refreshCounts(); refreshDone(); }
+    doneBtn.addEventListener('click',toggleDone);
+    cmpBtn.addEventListener('click',toggleDone);
+    refreshDone();
     card.querySelector('[data-more]').addEventListener('click',function(){
       const mb=document.getElementById('mb-'+idx); mb.classList.toggle('open'); this.classList.toggle('open');
     });

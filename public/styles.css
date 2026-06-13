@@ -86,7 +86,7 @@ header{position:sticky;top:0;z-index:30;background:linear-gradient(180deg,var(--
 .tag.stretch{background:rgba(137,220,235,.12);color:var(--sky);border-color:rgba(137,220,235,.3)}
 .done{width:30px;height:30px;border-radius:9px;border:1.5px solid var(--s2);background:transparent;color:transparent;
   font-size:15px;display:flex;align-items:center;justify-content:center;transition:.18s;flex-shrink:0}
-.done.on{background:var(--green);border-color:var(--green);color:var(--crust);font-weight:700}
+.done.on{background:var(--yellow);border-color:var(--yellow);color:var(--crust);font-weight:700}
 .done:active{transform:scale(.85)}
 
 /* collapse / accordion */
@@ -98,12 +98,20 @@ header{position:sticky;top:0;z-index:30;background:linear-gradient(180deg,var(--
 .card.collapsed .tags{display:none}
 .card:not(.collapsed) .csum{display:none}
 
-/* complete / incomplete status */
-.card.done{border-color:rgba(166,227,161,.35)}
-.card.done .cnum{color:var(--green)}
+/* complete / incomplete status — gold = completed movement */
+.card.complete{border-color:rgba(249,226,175,.5);box-shadow:0 0 0 1px rgba(249,226,175,.22),0 6px 20px -12px rgba(249,226,175,.5)}
+.card.complete .cnum{color:var(--yellow)}
 .csum{font-size:11px;color:var(--ovl);margin-top:7px;letter-spacing:.2px}
 .csum b{color:var(--sub1);font-weight:600}
-.card.done .csum b{color:var(--green)}
+.card.complete .csum b{color:var(--yellow)}
+
+/* per-movement complete button */
+.cmprow{padding:2px 14px 12px}
+.card.collapsed .cmprow{display:none}
+.cmpbtn{width:100%;padding:12px;border-radius:12px;background:var(--s0);border:1px solid var(--s1);color:var(--sub1);
+  font-family:var(--disp);font-weight:700;font-size:13px;letter-spacing:.3px;transition:transform .15s,background .15s}
+.cmpbtn:active{transform:scale(.97)}
+.cmpbtn.complete{background:rgba(249,226,175,.16);border-color:rgba(249,226,175,.5);color:var(--yellow)}
 
 /* per-set clear */
 .wtright{margin-left:auto;display:flex;align-items:center;gap:8px}
