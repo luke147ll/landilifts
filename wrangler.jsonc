@@ -1,12 +1,21 @@
 {
-  // Static-assets Worker for Landi Lifts (vanilla HTML/CSS/JS, no build step).
-  // Pushing to GitHub triggers Workers Builds, which runs `wrangler deploy`
-  // and serves these files at https://landilifts.luke-landi.workers.dev
+  // Landi Lifts Worker: serves the static site in ./public and a tiny D1-backed
+  // sync API (worker.js). Pushing to GitHub triggers Workers Builds (wrangler
+  // deploy) -> https://landilifts.luke-landi.workers.dev
   "name": "landilifts",
   "compatibility_date": "2026-06-13",
+  "main": "worker.js",
   "assets": {
     "directory": "./public",
+    "binding": "ASSETS",
     "html_handling": "auto-trailing-slash",
     "not_found_handling": "404-page"
-  }
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "landilifts-db",
+      "database_id": "257f615b-a893-4535-89f1-d26b864eff6f"
+    }
+  ]
 }

@@ -385,3 +385,26 @@ header{position:sticky;top:0;z-index:30;background:linear-gradient(180deg,var(--
 .toast .te{font-family:var(--disp);font-weight:700;font-size:11px;letter-spacing:.8px;text-transform:uppercase;color:var(--mauve)}
 .toast .tt{font-size:13px;color:var(--text);margin-top:2px}
 .toast .tt b{color:var(--peach)}
+
+/* =================== sign-in (Walt / Luke) =================== */
+.userchip{display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 11px;border-radius:999px;
+  background:var(--s0);border:1px solid var(--s1);color:var(--sub1);font-family:var(--disp);font-weight:700;
+  font-size:12px;letter-spacing:.3px;transition:.15s}
+.userchip::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--mauve)}
+.userchip.luke::before{background:var(--mauve)}
+.userchip.walt::before{background:var(--sky)}
+.userchip:active{transform:scale(.94);background:var(--s1)}
+.signin{position:fixed;inset:0;z-index:80;background:linear-gradient(180deg,var(--crust),var(--base));
+  display:none;align-items:center;justify-content:center;padding:24px;padding-bottom:calc(24px + env(safe-area-inset-bottom))}
+.signin.show{display:flex;animation:fade .25s ease}
+.siwrap{width:100%;max-width:360px;text-align:center}
+.sibrand{font-family:var(--disp);font-weight:700;font-size:26px;letter-spacing:.5px;color:var(--text)}
+.sibrand .b2{color:var(--ovl1);font-weight:400}
+.sihi{font-family:var(--disp);font-weight:700;font-size:16px;color:var(--sub1);margin-top:28px;letter-spacing:.4px}
+.sibtns{display:grid;gap:12px;margin-top:18px}
+.sibtn{padding:20px;border-radius:16px;background:var(--mantle);border:1px solid var(--s1);color:var(--text);
+  font-family:var(--disp);font-weight:700;font-size:20px;letter-spacing:.5px;transition:transform .15s,border-color .15s,box-shadow .15s}
+.sibtn:active{transform:scale(.97)}
+.sibtn[data-user="luke"]:active{border-color:var(--mauve);box-shadow:0 0 0 1px var(--mauve),0 8px 24px -12px var(--mauve)}
+.sibtn[data-user="walt"]:active{border-color:var(--sky);box-shadow:0 0 0 1px var(--sky),0 8px 24px -12px var(--sky)}
+.sinote{font-size:12px;color:var(--ovl);margin-top:22px;line-height:1.5}

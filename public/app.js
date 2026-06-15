@@ -48,6 +48,7 @@ function queueSave(wk,day){
   saveTimers[k]=setTimeout(async()=>{
     try{ await window.storage.set(k, JSON.stringify(dayCache[k]||{}), false); }
     catch(e){ console.error('save failed',e); }
+    scheduleCloudPush();
   },500);
 }
 
@@ -296,6 +297,7 @@ async function finishWorkout(){
   const k='bts:fin:w'+state.wk+':'+state.day; const fin={at:new Date().toISOString()};
   try{ await window.storage.set(k, JSON.stringify(fin), false); }catch(_){}
   finCache[k]=fin;
+  scheduleCloudPush();
   await renderAll();
   showWorkoutSummary(state.wk, state.day, fin);
 }
@@ -546,14 +548,16 @@ function guideHTML(){ return `
   <div class="gl"><b>30s loaded stretch</b> — hold the stretched position under load for 30s after the last set (calves).</div>
   <h3>Warm-up each session</h3>
   <p>5–10 min light cardio + arm/leg swings, then a warm-up pyramid sized to the warm-up count on each lift (more sets = heavier ramp on big compounds).</p>
+  <h3>Sync &amp; account</h3>
+  <p>You're signed in as <b style="color:var(--text)">${LL_USER?LL_USER.charAt(0).toUpperCase()+LL_USER.slice(1):'—'}</b>. Your logs save to the cloud automatically and load on any device when you open the app and pick your name. Tap your name in the top bar to switch between Walt and Luke.</p>
   <h3>Backup &amp; restore</h3>
-  <p>Your logs save automatically to your Claude account and reappear whenever you reopen this. Export a backup to keep your own copy, move to a new device, or restore after a reset.</p>
+  <p>Cloud sync is automatic, but you can still export a backup to keep your own copy or restore after a reset.</p>
   <button class="databtn" id="expJson">⬇  Download backup file (.json)</button>
   <button class="databtn" id="expCsv">⬇  Export training log (.csv)</button>
   <button class="databtn" id="impBtn">↺  Restore from a backup file</button>
   <input type="file" id="impFile" accept="application/json,.json" style="display:none">
   <button class="dangerbtn" id="resetBtn">Reset all logged data</button>
-  <div class="tiny">Your sets save to your Claude account as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.</div>`;
+  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.</div>`;
 }
 function download(filename, text, mime){
   try{ const blob=new Blob([text],{type:mime||'text/plain'}); const url=URL.createObjectURL(blob);
@@ -597,7 +601,7 @@ function restoreData(text){
   if(!keys.length){ alert('No saved data found in that file.'); return; }
   if(!confirm('Restore '+keys.length+' saved day(s)? This replaces your current logs.')) return;
   (async()=>{ for(const k of keys){ try{ await window.storage.set(k, JSON.stringify(data[k]), false);}catch(_){} }
-    dayCache={}; finCache={}; prFiredSession.clear(); scrim.classList.remove('show'); await renderAll(); await computePRBase();
+    dayCache={}; finCache={}; prFiredSession.clear(); scheduleCloudPush(); scrim.classList.remove('show'); await renderAll(); await computePRBase();
     try{ if(document.getElementById('bodyView').style.display!=='none'){ await renderProg(); await renderShelf(); } }catch(_){}
     alert('Backup restored.'); })();
 }
@@ -607,7 +611,7 @@ sheet.addEventListener('click',async(e)=>{
     if(!confirm('Erase every logged set across all 12 weeks? This cannot be undone.')) return;
     try{ const r=await window.storage.list('bts:', false); for(const k of ((r&&r.keys)||[])){ try{ await window.storage.delete(k,false);}catch(_){} } }
     catch(_){ for(let wk=1;wk<=12;wk++) for(const d of ['mon','fri','sat']){ try{ await window.storage.delete(keyFor(wk,d),false);}catch(__){} } }
-    dayCache={}; finCache={}; prFiredSession.clear(); scrim.classList.remove('show'); await renderAll(); await computePRBase(); renderShelf();
+    dayCache={}; finCache={}; prFiredSession.clear(); scheduleCloudPush(); scrim.classList.remove('show'); await renderAll(); await computePRBase(); renderShelf();
   } else if(id==='expJson'){ exportJSON(); }
   else if(id==='expCsv'){ exportCSV(); }
   else if(id==='impBtn'){ const f=document.getElementById('impFile'); if(f) f.click(); }
@@ -795,9 +799,84 @@ document.getElementById('shelf').addEventListener('click',e=>{
 });
 sheet.addEventListener('click',e=>{ if(e.target.id==='achClose'||e.target.id==='summClose') scrim.classList.remove('show'); });
 
+/* ===================== cloud sync (Walt / Luke) ===================== */
+const LL_USERS=['walt','luke'];
+let LL_USER=null;
+try{ LL_USER=localStorage.getItem('ll:user'); }catch(_){}
+if(!LL_USERS.includes(LL_USER)) LL_USER=null;
+
+function llGet(k){ try{ return localStorage.getItem(k); }catch(_){ return null; } }
+function llSet(k,v){ try{ localStorage.setItem(k,v); }catch(_){} }
+function llDel(k){ try{ localStorage.removeItem(k); }catch(_){} }
+function setDirty(){ llSet('ll:dirty','1'); }
+function clearDirty(){ llDel('ll:dirty'); }
+function isDirty(){ return llGet('ll:dirty')==='1'; }
+
+async function localKeys(){ try{ const r=await window.storage.list('bts:',false); return (r&&r.keys)||[]; }catch(_){ return []; } }
+async function localHasData(){ return (await localKeys()).length>0; }
+async function clearLocal(){ for(const k of await localKeys()){ try{ await window.storage.delete(k,false); }catch(_){} } }
+
+let pushTimer=null;
+function scheduleCloudPush(){ if(!LL_USER) return; setDirty(); clearTimeout(pushTimer); pushTimer=setTimeout(flushCloud,1200); }
+async function flushCloud(){
+  if(!LL_USER) return;
+  let blob; try{ blob=JSON.stringify(await gatherAll()); }catch(_){ return; }
+  try{
+    const res=await fetch('/api/state',{method:'PUT',headers:{'content-type':'application/json'},
+      body:JSON.stringify({user:LL_USER,data:blob})});
+    if(res&&res.ok) clearDirty();
+  }catch(_){ /* offline — stay dirty, retry on next change / online / open */ }
+}
+async function cloudPull(){
+  if(!LL_USER) return false;
+  let obj;
+  try{ const res=await fetch('/api/state?user='+encodeURIComponent(LL_USER)); if(!res||!res.ok) return false;
+    const j=await res.json(); obj=JSON.parse((j&&j.data)||'{}'); }
+  catch(_){ return false; }
+  await clearLocal();
+  for(const k in obj){ try{ await window.storage.set(k, JSON.stringify(obj[k]), false); }catch(_){} }
+  dayCache={}; finCache={};
+  return true;
+}
+
+function updateUserChip(){
+  const c=document.getElementById('userChip');
+  if(LL_USER){ c.style.display=''; c.className='userchip '+LL_USER; c.textContent=LL_USER.charAt(0).toUpperCase()+LL_USER.slice(1); }
+  else c.style.display='none';
+}
+function showSignin(){ document.getElementById('signin').classList.add('show'); }
+function hideSignin(){ document.getElementById('signin').classList.remove('show'); }
+
+async function bootSync(){
+  if(isDirty()) await flushCloud();   // unpushed local work wins — push it, don't clobber
+  else await cloudPull();             // get latest from the cloud
+  await renderAll();
+  await computePRBase();
+  try{ if(document.getElementById('bodyView').style.display!=='none'){ await renderProg(); await renderShelf(); } }catch(_){}
+}
+async function pickUser(u){
+  if(!LL_USERS.includes(u)) return;
+  LL_USER=u; llSet('ll:user',u);
+  if(await localHasData()) setDirty();  // first sign-in carries existing local data up to this name
+  updateUserChip(); hideSignin();
+  await bootSync();
+}
+async function switchUser(){
+  await flushCloud();                   // push current user's pending changes first
+  await clearLocal();
+  dayCache={}; finCache={}; prFiredSession.clear(); PR_BASE={}; clearDirty();
+  LL_USER=null; llDel('ll:user');
+  updateUserChip(); showSignin();
+}
+
+document.querySelectorAll('.sibtn').forEach(b=>b.addEventListener('click',()=>pickUser(b.dataset.user)));
+document.getElementById('userChip').addEventListener('click',switchUser);
+window.addEventListener('online',()=>{ if(isDirty()) flushCloud(); });
+
 /* ---------- boot ---------- */
 (async()=>{
   progState.sel={type:'ex', name:DATA.weeks[0].days.mon[0].ex};
-  await renderAll();
-  await computePRBase();
+  updateUserChip();
+  if(LL_USER){ await bootSync(); }
+  else { await renderAll(); showSignin(); }
 })();
