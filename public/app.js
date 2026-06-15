@@ -424,9 +424,8 @@ async function renderList(){
     tags+=`<span class="tag">warm-up ${esc(ex.wu)}</span>`;
     if(tl) tags+=`<span class="tag ${tc}">${esc(tl)}</span>`;
 
-    const nameHTML = ex.demo
-      ? `<a class="exname" href="${ex.demo}" target="_blank" rel="noopener">${esc(ex.ex)}<span class="play">▶ demo</span></a>`
-      : `<span class="exname">${esc(ex.ex)}</span>`;
+    const nameHTML = `<span class="exname">${esc(ex.ex)}</span>`
+      + (ex.demo ? `<a class="play" href="${ex.demo}" target="_blank" rel="noopener" aria-label="Watch demo video">▶ demo</a>` : '');
 
     const prevSets = prevByName[ex.ex]||[];
     card.innerHTML=`
@@ -596,6 +595,8 @@ drawT();
 const scrim=document.getElementById('scrim'), sheet=document.getElementById('sheet');
 document.getElementById('guideBtn').onclick=()=>{ sheet.innerHTML=guideHTML(); scrim.classList.add('show'); };
 scrim.onclick=(e)=>{ if(e.target===scrim) scrim.classList.remove('show'); };
+document.getElementById('sheetX').onclick=()=>scrim.classList.remove('show');
+sheet.addEventListener('click',e=>{ if(e.target.classList.contains('grab')) scrim.classList.remove('show'); });
 function guideHTML(){ return `
   <div class="grab"></div>
   <h2>How this build works</h2>
