@@ -45,18 +45,20 @@ header{position:sticky;top:0;z-index:30;background:linear-gradient(180deg,var(--
 .badge.wkdone{background:rgba(249,226,175,.16);color:var(--yellow);border:1px solid rgba(249,226,175,.4)}
 
 /* day tabs */
-.tabs{max-width:760px;margin:12px auto 12px;padding:0 14px;display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-.tab{position:relative;padding:11px 6px 12px;border-radius:13px;background:var(--mantle);border:1px solid var(--s0);
+.tabs{max-width:760px;margin:12px auto 12px;padding:0 14px;display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.tab{position:relative;padding:11px 4px 12px;border-radius:13px;background:var(--mantle);border:1px solid var(--s0);
   text-align:center;transition:.18s;overflow:hidden}
-.tab .dow{font-family:var(--disp);font-weight:700;font-size:13px;letter-spacing:.5px}
-.tab .typ{font-size:10px;color:var(--sub);margin-top:2px;letter-spacing:.3px}
-.tab .ring{position:absolute;top:7px;right:8px;font-size:10px;color:var(--ovl);font-weight:700}
+.tab .dow{font-family:var(--disp);font-weight:700;font-size:12.5px;letter-spacing:.4px}
+.tab .typ{font-size:9.5px;color:var(--sub);margin-top:2px;letter-spacing:.2px}
+.tab .ring{position:absolute;top:6px;right:6px;font-size:9.5px;color:var(--ovl);font-weight:700}
 .tab[data-d="mon"].on{border-color:var(--mon);box-shadow:0 0 0 1px var(--mon),0 6px 18px -8px var(--mon)}
+.tab[data-d="wed"].on{border-color:var(--peach);box-shadow:0 0 0 1px var(--peach),0 6px 18px -8px var(--peach)}
 .tab[data-d="fri"].on{border-color:var(--fri);box-shadow:0 0 0 1px var(--fri),0 6px 18px -8px var(--fri)}
 .tab[data-d="sat"].on{border-color:var(--sat);box-shadow:0 0 0 1px var(--sat),0 6px 18px -8px var(--sat)}
 .tab.on .typ{color:var(--sub1)}
 .tab:active{transform:scale(.97)}
 .tab[data-d="mon"].on .dow{color:var(--mon)}
+.tab[data-d="wed"].on .dow{color:var(--peach)}
 .tab[data-d="fri"].on .dow{color:var(--fri)}
 .tab[data-d="sat"].on .dow{color:var(--sat)}
 
@@ -357,6 +359,16 @@ header{position:sticky;top:0;z-index:30;background:linear-gradient(180deg,var(--
 .dbadge{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);
   box-shadow:0 0 0 3px rgba(166,227,161,.16);flex-shrink:0}
 .pickhint{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--sub);margin:6px 0 2px}
+
+/* Wednesday — Coach Danny muscle-group tagging */
+.wedhead{padding:14px 14px 2px}
+.wedttl{font-family:var(--disp);font-weight:700;font-size:15px}
+.wedsub{font-size:12px;color:var(--sub);margin-top:3px;line-height:1.45}
+.wedchips{display:flex;flex-wrap:wrap;gap:9px;padding:13px 14px 16px}
+.wedchip{padding:11px 16px;border-radius:12px;background:var(--s0);border:1px solid var(--s1);color:var(--sub1);
+  font-family:var(--disp);font-weight:700;font-size:14px;letter-spacing:.3px;transition:transform .15s,background .15s,border-color .15s}
+.wedchip:active{transform:scale(.94)}
+.wedchip.on{background:rgba(250,179,135,.16);border-color:var(--peach);color:var(--peach)}
 
 /* =================== v2: gamification =================== */
 

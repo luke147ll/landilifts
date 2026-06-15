@@ -24,13 +24,16 @@ const DATA = window.PROGRAM;
 const EX_GROUP = window.EX_GROUP;
 
 const DAYS = [
-  {k:'mon', dow:'MON', typ:'Full Body · Strength', color:'var(--mon)'},
-  {k:'fri', dow:'FRI', typ:'Upper · Hypertrophy', color:'var(--fri)'},
-  {k:'sat', dow:'SAT', typ:'Lower · Hypertrophy', color:'var(--sat)'},
+  {k:'mon', dow:'MON', typ:'Full Body · Strength', tab:'Full Body', color:'var(--mon)'},
+  {k:'wed', dow:'WED', typ:'Coach Danny',          tab:'Coach',     color:'var(--peach)'},
+  {k:'fri', dow:'FRI', typ:'Upper · Hypertrophy',  tab:'Upper',     color:'var(--fri)'},
+  {k:'sat', dow:'SAT', typ:'Lower · Hypertrophy',  tab:'Lower',     color:'var(--sat)'},
 ];
+// Wednesday (Coach Danny) is a free-form coach session — just tag the muscle groups worked.
+const WED_GROUPS=['Chest','Back','Shoulders','Arms','Legs','Glutes','Core','Cardio'];
 let state = {wk:1, day:'mon'};
 try{ const _w=+localStorage.getItem('ll:wk'); if(_w>=1&&_w<=12) state.wk=_w;
-  const _d=localStorage.getItem('ll:day'); if(['mon','fri','sat'].includes(_d)) state.day=_d; }catch(_){}
+  const _d=localStorage.getItem('ll:day'); if(['mon','wed','fri','sat'].includes(_d)) state.day=_d; }catch(_){}
 function persistPos(){ try{ localStorage.setItem('ll:wk',String(state.wk)); localStorage.setItem('ll:day',state.day); }catch(_){} }
 let dayCache = {};   // key -> {exIdx:{done,sets:[{w,r}]}}
 
@@ -372,19 +375,63 @@ function renderHeader(){
 async function renderTabs(){
   const tabs=document.getElementById('tabs'); tabs.innerHTML='';
   for(const d of DAYS){
-    const exs=curWeek().days[d.k];
-    const log=await loadDay(state.wk,d.k);
-    const fin=await loadFin(state.wk,d.k);
-    let done=0; exs.forEach((_,i)=>{ if(log[i]&&log[i].done) done++; });
     const el=document.createElement('button');
     el.className='tab'+(state.day===d.k?' on':''); el.dataset.d=d.k;
-    el.innerHTML=`${fin?'<div class="tfin">✓</div>':''}<div class="ring">${done}/${exs.length}</div><div class="dow">${d.dow}</div><div class="typ">${d.typ}</div>`;
+    if(d.k==='wed'){
+      const wed=await loadWed(state.wk); const n=wed.groups.length;
+      el.innerHTML=`<div class="ring">${n||''}</div><div class="dow">${d.dow}</div><div class="typ">${d.tab}</div>`;
+    } else {
+      const exs=curWeek().days[d.k];
+      const log=await loadDay(state.wk,d.k);
+      const fin=await loadFin(state.wk,d.k);
+      let done=0; exs.forEach((_,i)=>{ if(log[i]&&log[i].done) done++; });
+      el.innerHTML=`${fin?'<div class="tfin">✓</div>':''}<div class="ring">${done}/${exs.length}</div><div class="dow">${d.dow}</div><div class="typ">${d.tab}</div>`;
+    }
     el.onclick=()=>{ state.day=d.k; renderAll(); };
     tabs.appendChild(el);
   }
 }
 
+// ---- Wednesday (Coach Danny): muscle-group tagging ----
+let wedCache={};
+async function loadWed(wk){ const k='bts:wed:w'+wk; if(k in wedCache) return wedCache[k];
+  let v=null; try{ const r=await window.storage.get(k,false); if(r&&r.value) v=JSON.parse(r.value); }catch(_){}
+  if(!v||typeof v!=='object') v={}; if(!Array.isArray(v.groups)) v.groups=[]; wedCache[k]=v; return v; }
+function saveWed(wk){ const k='bts:wed:w'+wk; try{ window.storage.set(k, JSON.stringify(wedCache[k]||{groups:[]}), false); }catch(_){} scheduleCloudPush(); }
+async function renderWed(){
+  const d=DAYS.find(x=>x.k==='wed');
+  const wed=await loadWed(state.wk);
+  document.getElementById('daybar').innerHTML =
+    `<span class="dot" style="background:${d.color}"></span>`+
+    `<span class="ttl">WED — Coach Danny</span>`+
+    `<span class="prog"><b>${wed.groups.length}</b> selected</span>`;
+  const list=document.getElementById('list'); list.innerHTML='';
+  const card=el('div','card');
+  card.innerHTML=`<div class="wedhead"><div class="wedttl">Muscle groups worked</div><div class="wedsub">Tap each area Coach Danny trained this Wednesday.</div></div>`;
+  const chips=el('div','wedchips');
+  WED_GROUPS.forEach(g=>{
+    const b=el('button','wedchip'+(wed.groups.includes(g)?' on':''),esc(g));
+    b.addEventListener('click',()=>{
+      const i=wed.groups.indexOf(g); if(i>=0) wed.groups.splice(i,1); else wed.groups.push(g);
+      b.classList.toggle('on'); saveWed(state.wk);
+      const pb=document.querySelector('.daybar .prog'); if(pb) pb.innerHTML=`<b>${wed.groups.length}</b> selected`;
+      const ring=document.querySelector('.tab[data-d="wed"] .ring'); if(ring) ring.textContent=wed.groups.length||'';
+    });
+    chips.appendChild(b);
+  });
+  card.appendChild(chips);
+  list.appendChild(card);
+  const finwk=await loadFinWk(state.wk);
+  const wkbar=el('div','wkbar');
+  wkbar.innerHTML=finwk
+    ? `<button class="wkbtn done" id="wkBtn">✓ Week ${state.wk} complete — view summary</button>`
+    : `<button class="wkbtn" id="wkBtn">Complete Week ${state.wk}</button>`;
+  wkbar.querySelector('#wkBtn').addEventListener('click',()=> finwk? showWeekSummary(state.wk,finwk) : completeWeek());
+  list.appendChild(wkbar);
+}
+
 async function renderList(){
+  if(state.day==='wed'){ await renderWed(); return; }
   const w=curWeek(); const exs=w.days[state.day];
   const d=DAYS.find(x=>x.k===state.day);
   const log=await loadDay(state.wk,state.day);
@@ -554,7 +601,7 @@ async function renderList(){
 }
 
 function refreshCounts(){
-  const w=curWeek(); const exs=w.days[state.day]; const log=dayCache[keyFor(state.wk,state.day)]||{};
+  const w=curWeek(); const exs=w.days[state.day]; if(!exs) return; const log=dayCache[keyFor(state.wk,state.day)]||{};
   let done=0; exs.forEach((_,i)=>{ if(log[i]&&log[i].done) done++; });
   const pb=document.querySelector('.daybar .prog'); if(pb) pb.innerHTML=`<b>${done}</b>/${exs.length} done`;
   // tab ring
@@ -610,7 +657,7 @@ function guideHTML(){ return `
   <h3>Weekly schedule</h3>
   <div class="schrow"><div class="d" style="color:var(--mon)">Monday</div><div>Full Body · Strength (program)</div></div>
   <div class="schrow rest"><div class="d">Tuesday</div><div>Rest</div></div>
-  <div class="schrow"><div class="d" style="color:var(--peach)">Wednesday</div><div>Trainer session (full body / mixed)</div></div>
+  <div class="schrow"><div class="d" style="color:var(--peach)">Wednesday</div><div>Coach Danny — tag the muscle groups worked</div></div>
   <div class="schrow rest"><div class="d">Thursday</div><div>Rest</div></div>
   <div class="schrow"><div class="d" style="color:var(--fri)">Friday</div><div>Upper · Hypertrophy (program)</div></div>
   <div class="schrow"><div class="d" style="color:var(--sat)">Saturday</div><div>Lower · Hypertrophy (program)</div></div>
@@ -687,7 +734,7 @@ function restoreData(text){
   if(!keys.length){ alert('No saved data found in that file.'); return; }
   if(!confirm('Restore '+keys.length+' saved day(s)? This replaces your current logs.')) return;
   (async()=>{ for(const k of keys){ try{ await window.storage.set(k, JSON.stringify(data[k]), false);}catch(_){} }
-    dayCache={}; finCache={}; finWkCache={}; prFiredSession.clear(); scheduleCloudPush(); scrim.classList.remove('show'); await renderAll(); await computePRBase();
+    dayCache={}; finCache={}; finWkCache={}; wedCache={}; prFiredSession.clear(); scheduleCloudPush(); scrim.classList.remove('show'); await renderAll(); await computePRBase();
     try{ if(document.getElementById('bodyView').style.display!=='none'){ await renderProg(); await renderShelf(); } }catch(_){}
     alert('Backup restored.'); })();
 }
@@ -697,7 +744,7 @@ sheet.addEventListener('click',async(e)=>{
     if(!confirm('Erase every logged set across all 12 weeks? This cannot be undone.')) return;
     try{ const r=await window.storage.list('bts:', false); for(const k of ((r&&r.keys)||[])){ try{ await window.storage.delete(k,false);}catch(_){} } }
     catch(_){ for(let wk=1;wk<=12;wk++) for(const d of ['mon','fri','sat']){ try{ await window.storage.delete(keyFor(wk,d),false);}catch(__){} } }
-    dayCache={}; finCache={}; finWkCache={}; prFiredSession.clear(); scheduleCloudPush(); scrim.classList.remove('show'); await renderAll(); await computePRBase(); renderShelf();
+    dayCache={}; finCache={}; finWkCache={}; wedCache={}; prFiredSession.clear(); scheduleCloudPush(); scrim.classList.remove('show'); await renderAll(); await computePRBase(); renderShelf();
   } else if(id==='expJson'){ exportJSON(); }
   else if(id==='expCsv'){ exportCSV(); }
   else if(id==='impBtn'){ const f=document.getElementById('impFile'); if(f) f.click(); }
@@ -938,7 +985,7 @@ async function cloudPull(){
   catch(_){ return false; }
   await clearLocal();
   for(const k in obj){ try{ await window.storage.set(k, JSON.stringify(obj[k]), false); }catch(_){} }
-  dayCache={}; finCache={}; finWkCache={};
+  dayCache={}; finCache={}; finWkCache={}; wedCache={};
   return true;
 }
 
@@ -967,7 +1014,7 @@ async function pickUser(u){
 async function switchUser(){
   await flushCloud();                   // push current user's pending changes first
   await clearLocal();
-  dayCache={}; finCache={}; finWkCache={}; prFiredSession.clear(); PR_BASE={}; clearDirty();
+  dayCache={}; finCache={}; finWkCache={}; wedCache={}; prFiredSession.clear(); PR_BASE={}; clearDirty();
   LL_USER=null; llDel('ll:user');
   updateUserChip(); showSignin();
 }
