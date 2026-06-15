@@ -839,17 +839,31 @@ document.getElementById('metricSel').onclick=()=>{
     `<p style="margin-top:14px">Est. 1RM blends weight and reps (Epley formula). Top Set is your heaviest weight that day. Total Volume is weight × reps summed across all sets.</p>`;
   scrim.classList.add('show');
 };
-document.getElementById('exSel').onclick=()=>{
+// set of exercise names that have at least one logged set (weight or reps)
+async function exDataSet(){
+  const set=new Set();
+  let all={}; try{ all=await gatherAll(); }catch(_){}
+  for(const k in all){ const m=k.match(/^bts:log:w(\d+):(\w+)$/); if(!m) continue;
+    const exs=(DATA.weeks[+m[1]-1]&&DATA.weeks[+m[1]-1].days[m[2]])||[]; const log=all[k]||{};
+    exs.forEach((ex,i)=>{ const rec=log[i]; if(!rec||!rec.sets) return;
+      if(rec.sets.some(st=>st&&((st.w&&st.w!=='')||(st.r&&st.r!=='')))) set.add(ex.ex); }); }
+  return set;
+}
+const dot=have=> have?'<i class="dbadge" title="has logged data"></i>':'';
+document.getElementById('exSel').onclick=async()=>{
+  const data=await exDataSet();
+  const groupHas=g=>(GROUP_INDEX[g]||[]).some(o=>{ const ex=DATA.weeks[o.wk-1].days[o.day][o.exIdx]; return ex&&data.has(ex.ex); });
   let html=`<div class="grab"></div><h2>What do you want to track?</h2>`;
+  html+=`<div class="pickhint">${dot(true)} have logged data</div>`;
   html+=`<h3>Muscle groups</h3>`;
-  GROUP_ORDER.forEach(g=>{ if(GROUP_INDEX[g]) html+=`<button class="mopt" data-group="${g}">${g}<span>rollup</span></button>`; });
+  GROUP_ORDER.forEach(g=>{ if(GROUP_INDEX[g]) html+=`<button class="mopt" data-group="${g}">${g}<span>${dot(groupHas(g))}rollup</span></button>`; });
   const seen=new Set();
   for(const [bn,wk] of [['Foundation',1],['Ramping',6]]){
     html+=`<h3>${bn} block — movements</h3>`;
     const wkObj=DATA.weeks[wk-1];
     for(const dk of ['mon','fri','sat']){
       wkObj.days[dk].forEach(ex=>{ if(seen.has(ex.ex)) return; seen.add(ex.ex);
-        html+=`<button class="mopt exopt" data-ex="${ex.ex.replace(/"/g,'&quot;')}">${ex.ex}<span>${dk.toUpperCase()}</span></button>`; });
+        html+=`<button class="mopt exopt" data-ex="${ex.ex.replace(/"/g,'&quot;')}">${ex.ex}<span>${dot(data.has(ex.ex))}${dk.toUpperCase()}</span></button>`; });
     }
   }
   sheet.innerHTML=html; scrim.classList.add('show');
