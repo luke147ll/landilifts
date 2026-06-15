@@ -459,9 +459,15 @@ async function renderList(){
     (function(){ const r=liveRec(idx); if(r.done){ r.sets=r.sets||[]; for(let s=0;s<nSets;s++){ while(r.sets.length<=s) r.sets.push({}); r.sets[s].done=true; } } })();
     const setDoneState=(s)=>{ const sv=(liveRec(idx).sets||[])[s]; return !!(sv&&sv.done); };
     const firstOpen=()=>{ for(let s=0;s<nSets;s++) if(!setDoneState(s)) return s; return -1; };
+    const lastWk=(s)=>prevSets[s]||{};
+    // weight default carries forward from the nearest earlier set you logged this session, else last week's
+    function carryWeight(s){ const sets=liveRec(idx).sets||[]; for(let p=s-1;p>=0;p--){ const w=sets[p]&&sets[p].w; if(w!==undefined&&w!=='') return String(w); } const pv=lastWk(s); return (pv.w!=null&&pv.w!=='')?String(pv.w):null; }
+    function repsPre(s){ const pv=lastWk(s); return (pv.r!=null&&pv.r!=='')?String(pv.r):'8'; }
     function recomputeMovementDone(){ const r=liveRec(idx); let all=nSets>0; for(let s=0;s<nSets;s++){ if(!(r.sets&&r.sets[s]&&r.sets[s].done)){ all=false; break; } } r.done=all; }
-    function markSetDone(s){ const r=liveRec(idx); r.sets=r.sets||[]; while(r.sets.length<=s) r.sets.push({}); r.sets[s].done=true;
-      recomputeMovementDone(); queueSave(state.wk,state.day); openS=firstOpen(); refreshCounts(); refreshDone(); renderSets(); }
+    function markSetDone(s){ const r=liveRec(idx); r.sets=r.sets||[]; while(r.sets.length<=s) r.sets.push({}); const sv=r.sets[s];
+      if(sv.w===undefined||sv.w===''){ const w=carryWeight(s); if(w!=null) sv.w=w; }   // commit the shown default if untouched
+      if(sv.r===undefined||sv.r==='') sv.r=repsPre(s);
+      sv.done=true; recomputeMovementDone(); queueSave(state.wk,state.day); openS=firstOpen(); refreshCounts(); refreshDone(); renderSets(); }
     let openS=firstOpen();
     function renderSets(){
       const resType=liveRec(idx).resType||resTypeFor(ex.ex);
@@ -480,8 +486,8 @@ async function renderList(){
           setbox.appendChild(row);
           continue;
         }
-        const wPre=(pv&&pv.w!=null&&pv.w!=='')?pv.w:null;
-        const rPre=(pv&&pv.r!=null&&pv.r!=='')?pv.r:8;
+        const wPre=carryWeight(s);
+        const rPre=repsPre(s);
         const hasVal=(sv.w&&sv.w!=='')||(sv.r&&sv.r!=='');
         const hint=(pv&&(pv.w||pv.r))?`<span class="lasthint">last wk <b>${esc(pv.w||'–')}</b> × ${esc(pv.r||'–')}</span>`:'';
         const clearBtn=hasVal?`<button class="setclear" aria-label="Clear this set" title="Clear this set">✕</button>`:'';
