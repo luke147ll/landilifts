@@ -29,6 +29,9 @@ const DAYS = [
   {k:'sat', dow:'SAT', typ:'Lower · Hypertrophy', color:'var(--sat)'},
 ];
 let state = {wk:1, day:'mon'};
+try{ const _w=+localStorage.getItem('ll:wk'); if(_w>=1&&_w<=12) state.wk=_w;
+  const _d=localStorage.getItem('ll:day'); if(['mon','fri','sat'].includes(_d)) state.day=_d; }catch(_){}
+function persistPos(){ try{ localStorage.setItem('ll:wk',String(state.wk)); localStorage.setItem('ll:day',state.day); }catch(_){} }
 let dayCache = {};   // key -> {exIdx:{done,sets:[{w,r}]}}
 
 /* ---------- storage ---------- */
@@ -310,6 +313,46 @@ function summaryText(ex, rec){
   return 'Not logged yet';
 }
 
+// ---- week completion ("Complete week") ----
+let finWkCache={};
+async function loadFinWk(wk){ const k='bts:finwk:w'+wk; if(k in finWkCache) return finWkCache[k];
+  let v=null; try{ const r=await window.storage.get(k,false); if(r&&r.value) v=JSON.parse(r.value); }catch(_){}
+  finWkCache[k]=v; return v; }
+async function weekSummary(wk){
+  let days=0, doneMv=0, totalMv=0, sets=0, vol=0, bestE=0, bestEx='';
+  for(const day of ['mon','fri','sat']){
+    const s=await daySummary(wk,day);
+    totalMv+=s.total; doneMv+=s.done; sets+=s.sets; vol+=s.vol;
+    if(s.bestE>bestE){ bestE=s.bestE; bestEx=s.bestEx; }
+    if(await loadFin(wk,day)) days++;
+  }
+  return {days, doneMv, totalMv, sets, vol, bestE, bestEx};
+}
+async function completeWeek(){
+  const k='bts:finwk:w'+state.wk, fin={at:new Date().toISOString()};
+  try{ await window.storage.set(k, JSON.stringify(fin), false); }catch(_){}
+  finWkCache[k]=fin; scheduleCloudPush();
+  await renderAll();
+  showWeekSummary(state.wk, fin);
+}
+function showWeekSummary(wk, fin){
+  const w=DATA.weeks[wk-1];
+  (async()=>{ const s=await weekSummary(wk);
+    const adv = wk<12 ? `<button class="databtn" id="wkAdvance" style="margin-top:8px">Start Week ${wk+1} →</button>` : '';
+    sheet.innerHTML=`<div class="grab"></div><h2>Week ${wk} complete</h2>`
+      +`<p>${esc(w.block)}${w.deload?' · Deload':(w.vol?' · '+esc(w.vol):'')}${fin&&fin.at?` · closed ${new Date(fin.at).toLocaleDateString()}`:''}</p>`
+      +`<div class="summgrid">`
+      +`<div class="scell"><div class="sv">${s.days}/3</div><div class="sl">days finished</div></div>`
+      +`<div class="scell"><div class="sv">${s.doneMv}/${s.totalMv}</div><div class="sl">movements done</div></div>`
+      +`<div class="scell"><div class="sv">${s.sets}</div><div class="sl">sets logged</div></div>`
+      +`<div class="scell"><div class="sv">${s.vol.toLocaleString()}</div><div class="sl">lb volume</div></div></div>`
+      +(s.bestEx?`<p style="text-align:center">Top lift · <b style="color:var(--text)">${esc(s.bestEx)}</b> · ${s.bestE} lb est. 1RM</p>`:'')
+      +adv
+      +`<button class="databtn" id="summClose" style="margin-top:8px">Close</button>`;
+    scrim.classList.add('show');
+  })();
+}
+
 /* ---------- render ---------- */
 function curWeek(){ return DATA.weeks[state.wk-1]; }
 
@@ -320,6 +363,7 @@ function renderHeader(){
   badges += `<span class="badge ${w.block==='Foundation'?'found':'ramp'}">${w.block}</span>`;
   if(w.deload) badges+='<span class="badge deload">Deload</span>';
   else if(w.vol) badges+=`<span class="badge vol">${w.vol}</span>`;
+  if(finWkCache['bts:finwk:w'+w.n]) badges+='<span class="badge wkdone">✓ Done</span>';
   document.getElementById('wkMeta').innerHTML = badges;
   document.getElementById('prevWk').disabled = state.wk<=1;
   document.getElementById('nextWk').disabled = state.wk>=12;
@@ -469,6 +513,15 @@ async function renderList(){
     : `<button class="finbtn" id="finBtn">Finish workout</button>`;
   bar.querySelector('#finBtn').addEventListener('click',()=> fin? showWorkoutSummary(state.wk,state.day,fin) : finishWorkout());
   list.appendChild(bar);
+
+  // complete-week bar
+  const finwk=await loadFinWk(state.wk);
+  const wkbar=el('div','wkbar');
+  wkbar.innerHTML=finwk
+    ? `<button class="wkbtn done" id="wkBtn">✓ Week ${state.wk} complete — view summary</button>`
+    : `<button class="wkbtn" id="wkBtn">Complete Week ${state.wk}</button>`;
+  wkbar.querySelector('#wkBtn').addEventListener('click',()=> finwk? showWeekSummary(state.wk,finwk) : completeWeek());
+  list.appendChild(wkbar);
 }
 
 function refreshCounts(){
@@ -480,6 +533,8 @@ function refreshCounts(){
 }
 
 async function renderAll(){
+  await loadFinWk(state.wk);
+  persistPos();
   renderHeader();
   await renderTabs();
   await renderList();
@@ -601,7 +656,7 @@ function restoreData(text){
   if(!keys.length){ alert('No saved data found in that file.'); return; }
   if(!confirm('Restore '+keys.length+' saved day(s)? This replaces your current logs.')) return;
   (async()=>{ for(const k of keys){ try{ await window.storage.set(k, JSON.stringify(data[k]), false);}catch(_){} }
-    dayCache={}; finCache={}; prFiredSession.clear(); scheduleCloudPush(); scrim.classList.remove('show'); await renderAll(); await computePRBase();
+    dayCache={}; finCache={}; finWkCache={}; prFiredSession.clear(); scheduleCloudPush(); scrim.classList.remove('show'); await renderAll(); await computePRBase();
     try{ if(document.getElementById('bodyView').style.display!=='none'){ await renderProg(); await renderShelf(); } }catch(_){}
     alert('Backup restored.'); })();
 }
@@ -611,7 +666,7 @@ sheet.addEventListener('click',async(e)=>{
     if(!confirm('Erase every logged set across all 12 weeks? This cannot be undone.')) return;
     try{ const r=await window.storage.list('bts:', false); for(const k of ((r&&r.keys)||[])){ try{ await window.storage.delete(k,false);}catch(_){} } }
     catch(_){ for(let wk=1;wk<=12;wk++) for(const d of ['mon','fri','sat']){ try{ await window.storage.delete(keyFor(wk,d),false);}catch(__){} } }
-    dayCache={}; finCache={}; prFiredSession.clear(); scheduleCloudPush(); scrim.classList.remove('show'); await renderAll(); await computePRBase(); renderShelf();
+    dayCache={}; finCache={}; finWkCache={}; prFiredSession.clear(); scheduleCloudPush(); scrim.classList.remove('show'); await renderAll(); await computePRBase(); renderShelf();
   } else if(id==='expJson'){ exportJSON(); }
   else if(id==='expCsv'){ exportCSV(); }
   else if(id==='impBtn'){ const f=document.getElementById('impFile'); if(f) f.click(); }
@@ -797,7 +852,10 @@ document.getElementById('seg').onclick=e=>{ const b=e.target.closest('.segbtn');
 document.getElementById('shelf').addEventListener('click',e=>{
   const m=e.target.closest('[data-ach]'); if(m) openAch(shelfList[+m.dataset.ach]);
 });
-sheet.addEventListener('click',e=>{ if(e.target.id==='achClose'||e.target.id==='summClose') scrim.classList.remove('show'); });
+sheet.addEventListener('click',e=>{
+  if(e.target.id==='achClose'||e.target.id==='summClose') scrim.classList.remove('show');
+  if(e.target.id==='wkAdvance'){ if(state.wk<12){ state.wk++; persistPos(); } scrim.classList.remove('show'); renderAll(); }
+});
 
 /* ===================== cloud sync (Walt / Luke) ===================== */
 const LL_USERS=['walt','luke'];
@@ -835,7 +893,7 @@ async function cloudPull(){
   catch(_){ return false; }
   await clearLocal();
   for(const k in obj){ try{ await window.storage.set(k, JSON.stringify(obj[k]), false); }catch(_){} }
-  dayCache={}; finCache={};
+  dayCache={}; finCache={}; finWkCache={};
   return true;
 }
 
@@ -864,7 +922,7 @@ async function pickUser(u){
 async function switchUser(){
   await flushCloud();                   // push current user's pending changes first
   await clearLocal();
-  dayCache={}; finCache={}; prFiredSession.clear(); PR_BASE={}; clearDirty();
+  dayCache={}; finCache={}; finWkCache={}; prFiredSession.clear(); PR_BASE={}; clearDirty();
   LL_USER=null; llDel('ll:user');
   updateUserChip(); showSignin();
 }

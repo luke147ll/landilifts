@@ -42,6 +42,7 @@ header{position:sticky;top:0;z-index:30;background:linear-gradient(180deg,var(--
 .badge.vol{background:rgba(166,227,161,.14);color:var(--green);border:1px solid rgba(166,227,161,.32)}
 .badge.found{background:rgba(137,180,250,.14);color:var(--blue);border:1px solid rgba(137,180,250,.3)}
 .badge.ramp{background:rgba(203,166,247,.16);color:var(--mauve);border:1px solid rgba(203,166,247,.32)}
+.badge.wkdone{background:rgba(249,226,175,.16);color:var(--yellow);border:1px solid rgba(249,226,175,.4)}
 
 /* day tabs */
 .tabs{max-width:760px;margin:12px auto 12px;padding:0 14px;display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
@@ -126,6 +127,11 @@ header{position:sticky;top:0;z-index:30;background:linear-gradient(180deg,var(--
   font-weight:700;font-size:15px;letter-spacing:.3px;transition:transform .15s}
 .finbtn:active{transform:scale(.97)}
 .finbtn.done{background:rgba(166,227,161,.14);border:1px solid rgba(166,227,161,.4);color:var(--green)}
+.wkbar{margin:4px 0 16px}
+.wkbtn{width:100%;padding:14px;border-radius:14px;background:var(--s0);border:1px solid var(--s1);color:var(--sub1);
+  font-family:var(--disp);font-weight:700;font-size:14px;letter-spacing:.3px;transition:transform .15s}
+.wkbtn:active{transform:scale(.97)}
+.wkbtn.done{background:rgba(249,226,175,.16);border-color:rgba(249,226,175,.5);color:var(--yellow)}
 .summgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0 4px}
 .scell{background:var(--mantle);border:1px solid var(--s0);border-radius:12px;padding:13px;text-align:center}
 .scell .sv{font-family:var(--disp);font-weight:700;font-size:24px;color:var(--text);line-height:1.1}
