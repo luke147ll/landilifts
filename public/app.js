@@ -456,14 +456,33 @@ async function renderList(){
     });
 
     const setbox=card.querySelector('#setbox-'+idx);
+    // back-fill per-set done flags for movements completed before this feature
+    (function(){ const r=liveRec(idx); if(r.done){ r.sets=r.sets||[]; for(let s=0;s<nSets;s++){ while(r.sets.length<=s) r.sets.push({}); r.sets[s].done=true; } } })();
+    const setDoneState=(s)=>{ const sv=(liveRec(idx).sets||[])[s]; return !!(sv&&sv.done); };
+    const firstOpen=()=>{ for(let s=0;s<nSets;s++) if(!setDoneState(s)) return s; return -1; };
+    function recomputeMovementDone(){ const r=liveRec(idx); let all=nSets>0; for(let s=0;s<nSets;s++){ if(!(r.sets&&r.sets[s]&&r.sets[s].done)){ all=false; break; } } r.done=all; }
+    function markSetDone(s){ const r=liveRec(idx); r.sets=r.sets||[]; while(r.sets.length<=s) r.sets.push({}); r.sets[s].done=true;
+      recomputeMovementDone(); queueSave(state.wk,state.day); openS=firstOpen(); refreshCounts(); refreshDone(); renderSets(); }
+    let openS=firstOpen();
     function renderSets(){
       const resType=liveRec(idx).resType||resTypeFor(ex.ex);
-      setbox.innerHTML='<div class="blocklbl"><span class="bln">Working sets</span></div>';
+      let dc=0; for(let s=0;s<nSets;s++) if(setDoneState(s)) dc++;
+      setbox.innerHTML=`<div class="blocklbl"><span class="bln">Working sets</span><span class="tick"><b>${dc}</b>/${nSets} done</span></div>`;
       for(let s=0;s<nSets;s++){
         const last=s===nSets-1, pv=prevSets[s];
+        const sv=(liveRec(idx).sets||[])[s]||{};
+        const done=setDoneState(s);
+        if(s!==openS){
+          const right=done
+            ? `<span class="setsum"><b>${esc(sv.w||'–')}</b> lb × <b>${esc(sv.r||'–')}</b></span><span class="setck">✓</span>`
+            : `<span class="setnext">${(sv.w||sv.r)?'tap to edit':'tap to log'}</span>`;
+          const row=el('div','setrowc'+(done?' done':''),`<span class="sn${last?' last':''}">Set ${s+1}</span>${right}`);
+          row.addEventListener('click',()=>{ openS=s; renderSets(); });
+          setbox.appendChild(row);
+          continue;
+        }
         const wPre=(pv&&pv.w!=null&&pv.w!=='')?pv.w:null;
         const rPre=(pv&&pv.r!=null&&pv.r!=='')?pv.r:8;
-        const sv=(liveRec(idx).sets||[])[s]||{};
         const hasVal=(sv.w&&sv.w!=='')||(sv.r&&sv.r!=='');
         const hint=(pv&&(pv.w||pv.r))?`<span class="lasthint">last wk <b>${esc(pv.w||'–')}</b> × ${esc(pv.r||'–')}</span>`:'';
         const clearBtn=hasVal?`<button class="setclear" aria-label="Clear this set" title="Clear this set">✕</button>`:'';
@@ -471,7 +490,7 @@ async function renderList(){
         const ws=el('div','workset',`<div class="worktop"><span class="sn${last?' last':''}">Set ${s+1}</span>${last?'<span class="failpill">FAILURE</span>':''}${right}</div>`);
         const cb=ws.querySelector('.setclear');
         if(cb) cb.addEventListener('click',()=>{ const r=liveRec(idx); if(r.sets&&r.sets[s]) r.sets[s]={};
-          queueSave(state.wk,state.day); renderSets(); refreshCounts(); updateStatuses(); });
+          recomputeMovementDone(); queueSave(state.wk,state.day); renderSets(); refreshCounts(); refreshDone(); });
         const fields=el('div','workfields');
         const wf=el('div',null,'<div class="fieldlbl">Weight</div>');
         wf.appendChild(makeWeightStepper(idx, ex, s, resType, wPre, s===0?()=>{
@@ -482,6 +501,9 @@ async function renderList(){
         rf.appendChild(makeRepsStepper(idx, ex, s, rPre));
         fields.append(wf, rf);
         ws.appendChild(fields);
+        const ds=el('button','setdone', last?'✓ Done — finish movement':'✓ Done set');
+        ds.addEventListener('click',()=>markSetDone(s));
+        ws.appendChild(ds);
         setbox.appendChild(ws);
       }
     }
@@ -495,7 +517,9 @@ async function renderList(){
       cmpBtn.textContent=on?'✓ Completed':'Mark complete';
       updateStatuses();
     }
-    function toggleDone(){ const r=liveRec(idx); r.done=!r.done; queueSave(state.wk,state.day); refreshCounts(); refreshDone(); }
+    function toggleDone(){ const r=liveRec(idx); const target=!r.done; r.sets=r.sets||[];
+      for(let s=0;s<nSets;s++){ while(r.sets.length<=s) r.sets.push({}); r.sets[s].done=target; }
+      r.done=target; queueSave(state.wk,state.day); openS=target?-1:0; refreshCounts(); refreshDone(); renderSets(); }
     doneBtn.addEventListener('click',toggleDone);
     cmpBtn.addEventListener('click',toggleDone);
     refreshDone();
