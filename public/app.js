@@ -692,7 +692,7 @@ function guideHTML(){ return `
   <button class="databtn" id="impBtn">↺  Restore from a backup file</button>
   <input type="file" id="impFile" accept="application/json,.json" style="display:none">
   <button class="dangerbtn" id="resetBtn">Reset all logged data</button>
-  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.<br><b style="color:var(--sub1)">build 20260616j</b></div>`;
+  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.<br><b style="color:var(--sub1)">build 20260616k</b></div>`;
 }
 function download(filename, text, mime){
   try{ const blob=new Blob([text],{type:mime||'text/plain'}); const url=URL.createObjectURL(blob);
@@ -1036,6 +1036,12 @@ async function switchUser(){
 document.querySelectorAll('.sibtn').forEach(b=>b.addEventListener('click',()=>pickUser(b.dataset.user)));
 document.getElementById('userChip').addEventListener('click',switchUser);
 window.addEventListener('online',()=>{ if(isDirty()) flushCloud(); });
+
+// today's date in the header (refresh when the app returns to the foreground, e.g. across midnight)
+function showToday(){ const e=document.getElementById('todayDate'); if(!e) return;
+  try{ e.textContent=new Date().toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'}); }catch(_){ e.textContent=''; } }
+showToday();
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden) showToday(); });
 
 /* ---------- boot ---------- */
 (async()=>{
