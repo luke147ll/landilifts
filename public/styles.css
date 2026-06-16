@@ -169,21 +169,21 @@ header{position:sticky;top:0;z-index:30;background:linear-gradient(180deg,var(--
 .worktop .failpill{font-size:9px;padding:1px 6px;border-radius:6px;background:rgba(243,139,168,.14);color:var(--red);letter-spacing:.4px}
 .worktop .lasthint{margin-left:auto;font-size:10.5px;color:var(--ovl)}
 .worktop .lasthint b{color:var(--peach)}
-.workfields{display:grid;grid-template-columns:1fr;gap:12px}
-.workfields>*{min-width:0}            /* Safari: let grid items shrink so nested flex sizes correctly */
-.wstep,.stepper{min-width:0}
+.workfields{display:block}
+.workfields>*+*{margin-top:12px}     /* plain block flow: each field has a definite width for the steppers */
 .fieldlbl{font-size:10px;color:var(--ovl);letter-spacing:.4px;text-transform:uppercase;margin-bottom:6px;
   font-family:var(--disp);font-weight:700}
-.repsrow{display:flex;align-items:center;gap:10px}
-.repsrow .rl{width:64px;flex-shrink:0}
+/* reps field row: fixed label column + the stepper (grid = no flex collapse on iOS) */
+.repsrow{display:grid;grid-template-columns:64px 1fr;gap:10px;align-items:center}
+.repsrow .rl{width:auto}
 
-/* WeightStepper */
-.wtop{display:flex;align-items:center;gap:8px}
-.wbig{width:46px;height:46px;flex-shrink:0;border-radius:12px;background:var(--s0);border:1px solid var(--s1);
+/* WeightStepper — explicit grid columns so the value plate can't collapse */
+.wtop{display:grid;grid-template-columns:46px 1fr 46px;gap:8px;align-items:center}
+.wbig{width:46px;height:46px;border-radius:12px;background:var(--s0);border:1px solid var(--s1);
   color:var(--text);font-family:var(--disp);font-weight:700;font-size:22px;line-height:1;
   display:flex;align-items:center;justify-content:center;transition:transform .15s}
 .wbig:active{transform:scale(.9)}
-.wplate{flex:1;min-width:0;height:46px;background:var(--crust);border:1px solid var(--s1);border-radius:12px;
+.wplate{min-width:0;height:46px;background:var(--crust);border:1px solid var(--s1);border-radius:12px;
   display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:text}
 .wplate.touched{border-color:var(--blue)}
 .wplate .wrow{display:flex;align-items:baseline;gap:4px}
@@ -195,7 +195,7 @@ header{position:sticky;top:0;z-index:30;background:linear-gradient(180deg,var(--
 .wplate input,.splate input{width:70px;background:transparent;border:none;outline:none;text-align:center;
   font-family:var(--disp);font-weight:700;font-size:22px;color:var(--text)}
 .splate input{width:48px;font-family:var(--body);font-size:16px;font-weight:600}
-.wctrl{display:flex;align-items:center;gap:8px;margin-top:8px}
+.wctrl{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:8px}
 .weq{display:inline-flex;align-items:center;gap:5px;font-family:var(--disp);font-weight:700;font-size:11px;
   letter-spacing:.4px;color:var(--sub1);background:var(--s0);border:1px solid var(--s1);border-radius:8px;padding:5px 9px}
 .weq.cyc{cursor:pointer}
@@ -211,13 +211,13 @@ header{position:sticky;top:0;z-index:30;background:linear-gradient(180deg,var(--
 .wchip:active{transform:scale(.92)}
 .wchips.sub .wchip{background:rgba(243,139,168,.10);border-color:rgba(243,139,168,.3);color:var(--red)}
 
-/* reps Stepper */
-.stepper{display:flex;align-items:center;gap:8px;flex:1}
-.sbtn{width:38px;height:38px;flex-shrink:0;border-radius:10px;background:var(--s0);border:1px solid var(--s1);
+/* reps Stepper — explicit grid columns */
+.stepper{display:grid;grid-template-columns:38px 1fr 38px;gap:8px;align-items:center}
+.sbtn{width:38px;height:38px;border-radius:10px;background:var(--s0);border:1px solid var(--s1);
   color:var(--text);font-family:var(--disp);font-weight:700;font-size:18px;line-height:1;
   display:flex;align-items:center;justify-content:center;transition:transform .15s}
 .sbtn:active{transform:scale(.88)}
-.splate{flex:1;min-width:0;height:38px;background:var(--crust);border:1px solid var(--s1);border-radius:10px;
+.splate{min-width:0;height:38px;background:var(--crust);border:1px solid var(--s1);border-radius:10px;
   display:flex;align-items:center;justify-content:center;gap:4px;cursor:text}
 .splate .snum{font-family:var(--body);font-weight:600;font-size:16px;color:var(--ovl)}
 .splate.touched .snum{color:var(--text)}
