@@ -18,7 +18,7 @@ button{font-family:var(--body);cursor:pointer;border:none;background:none;color:
 
 /* ---------- Header ---------- */
 header{position:sticky;top:0;z-index:30;background:linear-gradient(180deg,var(--crust),var(--mantle));
-  border-bottom:1px solid var(--s0);padding:10px 0 0;backdrop-filter:saturate(1.2)}
+  border-bottom:1px solid var(--s0);padding:calc(10px + env(safe-area-inset-top)) 0 0;backdrop-filter:saturate(1.2)}
 .hbar{max-width:760px;margin:0 auto;padding:0 14px;display:flex;align-items:center;gap:10px}
 .brand{font-family:var(--disp);font-weight:700;font-size:14px;letter-spacing:.5px;color:var(--text);white-space:nowrap}
 .brand .b2{color:var(--ovl1);font-weight:400}

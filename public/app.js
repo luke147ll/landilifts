@@ -692,8 +692,7 @@ function guideHTML(){ return `
   <button class="databtn" id="impBtn">↺  Restore from a backup file</button>
   <input type="file" id="impFile" accept="application/json,.json" style="display:none">
   <button class="dangerbtn" id="resetBtn">Reset all logged data</button>
-  <button class="databtn" id="dbgLayout" style="margin-top:18px">🔧 Layout check (read to dev)</button>
-  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.<br><b style="color:var(--sub1)">build 20260616g</b></div>`;
+  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.<br><b style="color:var(--sub1)">build 20260616h</b></div>`;
 }
 function download(filename, text, mime){
   try{ const blob=new Blob([text],{type:mime||'text/plain'}); const url=URL.createObjectURL(blob);
@@ -748,28 +747,7 @@ sheet.addEventListener('click',async(e)=>{
     try{ const r=await window.storage.list('bts:', false); for(const k of ((r&&r.keys)||[])){ try{ await window.storage.delete(k,false);}catch(_){} } }
     catch(_){ for(let wk=1;wk<=12;wk++) for(const d of ['mon','fri','sat']){ try{ await window.storage.delete(keyFor(wk,d),false);}catch(__){} } }
     dayCache={}; finCache={}; finWkCache={}; wedCache={}; prFiredSession.clear(); scheduleCloudPush(); scrim.classList.remove('show'); await renderAll(); await computePRBase(); renderShelf();
-  } else if(id==='dbgLayout'){
-    const desc=el=>{ const c=getComputedStyle(el), r=el.getBoundingClientRect();
-      const cls=(el.className&&el.className.toString().trim())?'.'+el.className.toString().trim().split(/\s+/).join('.'):'';
-      const txt=el.children.length?'':(' "'+(el.textContent||'').trim().slice(0,16)+'"');
-      return `${el.tagName.toLowerCase()}${cls} [${c.display} fd=${c.flexDirection} w=${Math.round(r.width)} x=${Math.round(r.x)}]${txt}`; };
-    const card=document.querySelector('#list .card:not(.collapsed)');
-    let out;
-    if(!card){ out='NO OPEN MOVEMENT.\nTap a lift name on Train to expand it first, then run Layout check again.'; }
-    else {
-      const sets=card.querySelector('.sets');
-      const lines=['lift: '+((card.querySelector('.exname')||{}).textContent||'?'),
-        'sets: '+(sets?getComputedStyle(sets).display:'MISSING')];
-      const walk=(el,d)=>{ if(d>3) return; [...el.children].forEach(ch=>{ lines.push('  '.repeat(d)+'• '+desc(ch)); walk(ch,d+1); }); };
-      if(sets) walk(sets,1);
-      out=lines.join('\n');
-    }
-    const head=`build 20260616g · iw=${window.innerWidth} dpr=${window.devicePixelRatio} standalone=${navigator.standalone===true}\n\n`;
-    sheet.innerHTML=`<div class="grab"></div><h2>Layout check</h2>`+
-      `<textarea class="bigta" readonly style="height:340px;font-size:10px">${esc(head+out)}</textarea>`+
-      `<button class="databtn" id="copyTa">Copy</button><p>Copy &amp; paste this to your dev.</p>`;
-  }
-  else if(id==='expJson'){ exportJSON(); }
+  } else if(id==='expJson'){ exportJSON(); }
   else if(id==='expCsv'){ exportCSV(); }
   else if(id==='impBtn'){ const f=document.getElementById('impFile'); if(f) f.click(); }
   else if(id==='copyTa'){ const ta=sheet.querySelector('.bigta'); if(ta){ ta.select();
