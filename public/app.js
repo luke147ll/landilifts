@@ -529,7 +529,7 @@ async function renderList(){
           const right=done
             ? `<span class="setsum"><b>${esc(sv.w||'–')}</b> lb × <b>${esc(sv.r||'–')}</b></span><span class="setck">✓</span>`
             : `<span class="setnext">${(sv.w||sv.r)?'tap to edit':'tap to log'}</span>`;
-          const row=el('div','setrowc'+(done?' done':''),`<span class="sn${last?' last':''}">Set ${s+1}</span>${right}`);
+          const row=el('div','setrowc'+(done?' sdone':''),`<span class="sn${last?' last':''}">Set ${s+1}</span>${right}`);
           row.addEventListener('click',()=>{ openS=s; renderSets(); });
           setbox.appendChild(row);
           continue;
@@ -693,7 +693,7 @@ function guideHTML(){ return `
   <input type="file" id="impFile" accept="application/json,.json" style="display:none">
   <button class="dangerbtn" id="resetBtn">Reset all logged data</button>
   <button class="databtn" id="dbgLayout" style="margin-top:18px">🔧 Layout check (read to dev)</button>
-  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.<br><b style="color:var(--sub1)">build 20260616f</b></div>`;
+  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.<br><b style="color:var(--sub1)">build 20260616g</b></div>`;
 }
 function download(filename, text, mime){
   try{ const blob=new Blob([text],{type:mime||'text/plain'}); const url=URL.createObjectURL(blob);
@@ -764,7 +764,7 @@ sheet.addEventListener('click',async(e)=>{
       if(sets) walk(sets,1);
       out=lines.join('\n');
     }
-    const head=`build 20260616f · iw=${window.innerWidth} dpr=${window.devicePixelRatio} standalone=${navigator.standalone===true}\n\n`;
+    const head=`build 20260616g · iw=${window.innerWidth} dpr=${window.devicePixelRatio} standalone=${navigator.standalone===true}\n\n`;
     sheet.innerHTML=`<div class="grab"></div><h2>Layout check</h2>`+
       `<textarea class="bigta" readonly style="height:340px;font-size:10px">${esc(head+out)}</textarea>`+
       `<button class="databtn" id="copyTa">Copy</button><p>Copy &amp; paste this to your dev.</p>`;
