@@ -692,7 +692,7 @@ function guideHTML(){ return `
   <button class="databtn" id="impBtn">↺  Restore from a backup file</button>
   <input type="file" id="impFile" accept="application/json,.json" style="display:none">
   <button class="dangerbtn" id="resetBtn">Reset all logged data</button>
-  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.</div>`;
+  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.<br><b style="color:var(--sub1)">build 20260616d</b></div>`;
 }
 function download(filename, text, mime){
   try{ const blob=new Blob([text],{type:mime||'text/plain'}); const url=URL.createObjectURL(blob);

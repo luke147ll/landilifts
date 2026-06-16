@@ -452,3 +452,4 @@ header{position:sticky;top:0;z-index:30;background:linear-gradient(180deg,var(--
 .sibtn[data-user="luke"]:active{border-color:var(--mauve);box-shadow:0 0 0 1px var(--mauve),0 8px 24px -12px var(--mauve)}
 .sibtn[data-user="walt"]:active{border-color:var(--sky);box-shadow:0 0 0 1px var(--sky),0 8px 24px -12px var(--sky)}
 .sinote{font-size:12px;color:var(--ovl);margin-top:22px;line-height:1.5}
+.sibuild{font-size:10px;color:var(--ovl);margin-top:16px;letter-spacing:.5px}
