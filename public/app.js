@@ -692,7 +692,8 @@ function guideHTML(){ return `
   <button class="databtn" id="impBtn">↺  Restore from a backup file</button>
   <input type="file" id="impFile" accept="application/json,.json" style="display:none">
   <button class="dangerbtn" id="resetBtn">Reset all logged data</button>
-  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.<br><b style="color:var(--sub1)">build 20260616d</b></div>`;
+  <button class="databtn" id="dbgLayout" style="margin-top:18px">🔧 Layout check (read to dev)</button>
+  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.<br><b style="color:var(--sub1)">build 20260616e</b></div>`;
 }
 function download(filename, text, mime){
   try{ const blob=new Blob([text],{type:mime||'text/plain'}); const url=URL.createObjectURL(blob);
@@ -747,7 +748,34 @@ sheet.addEventListener('click',async(e)=>{
     try{ const r=await window.storage.list('bts:', false); for(const k of ((r&&r.keys)||[])){ try{ await window.storage.delete(k,false);}catch(_){} } }
     catch(_){ for(let wk=1;wk<=12;wk++) for(const d of ['mon','fri','sat']){ try{ await window.storage.delete(keyFor(wk,d),false);}catch(__){} } }
     dayCache={}; finCache={}; finWkCache={}; wedCache={}; prFiredSession.clear(); scheduleCloudPush(); scrim.classList.remove('show'); await renderAll(); await computePRBase(); renderShelf();
-  } else if(id==='expJson'){ exportJSON(); }
+  } else if(id==='dbgLayout'){
+    const inf=el=>{ if(!el) return 'MISSING'; const c=getComputedStyle(el), r=el.getBoundingClientRect();
+      return `${c.display} | w=${Math.round(r.width)} x=${Math.round(r.x)}`; };
+    const wt=document.querySelector('#list .card:not(.collapsed) .wtop');
+    const wp=document.querySelector('#list .card:not(.collapsed) .wplate');
+    const st=document.querySelector('#list .card:not(.collapsed) .stepper');
+    const sp=document.querySelector('#list .card:not(.collapsed) .splate');
+    const wf=document.querySelector('#list .card:not(.collapsed) .workfields');
+    const wb=document.querySelectorAll('#list .card:not(.collapsed) .wtop .wbig');
+    const lines=[
+      'build 20260616e  ·  innerWidth='+window.innerWidth+'  dpr='+window.devicePixelRatio,
+      'standalone='+(navigator.standalone===true),
+      'UA='+navigator.userAgent,
+      '', '(open a movement on Train first so a stepper is visible)',
+      'workfields: '+inf(wf),
+      'wtop:       '+inf(wt),
+      'wtop cols:  '+(wt?getComputedStyle(wt).gridTemplateColumns:'-'),
+      'wbig count: '+wb.length+(wb[0]?(' first w='+Math.round(wb[0].getBoundingClientRect().width)):''),
+      'wplate:     '+inf(wp),
+      'stepper:    '+inf(st),
+      'stepper cols:'+(st?getComputedStyle(st).gridTemplateColumns:'-'),
+      'splate:     '+inf(sp),
+    ];
+    sheet.innerHTML=`<div class="grab"></div><h2>Layout check</h2>`+
+      `<textarea class="bigta" readonly style="height:300px">${esc(lines.join('\n'))}</textarea>`+
+      `<button class="databtn" id="copyTa">Copy</button><p>Read these to your dev (or Copy &amp; paste).</p>`;
+  }
+  else if(id==='expJson'){ exportJSON(); }
   else if(id==='expCsv'){ exportCSV(); }
   else if(id==='impBtn'){ const f=document.getElementById('impFile'); if(f) f.click(); }
   else if(id==='copyTa'){ const ta=sheet.querySelector('.bigta'); if(ta){ ta.select();
