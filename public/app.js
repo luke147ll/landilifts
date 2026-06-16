@@ -448,7 +448,7 @@ async function renderList(){
     `<span class="prog"><b>${done}</b>/${exs.length} done</span>`;
 
   const list=document.getElementById('list'); list.innerHTML='';
-  const cards=[];
+  const cards=[], cardSets=[];
   // accordion: open the first not-yet-done lift (all done -> all collapsed)
   let openIdx=exs.findIndex((_,i)=>!(log[i]&&log[i].done));
   function updateStatuses(){
@@ -456,7 +456,8 @@ async function renderList(){
     cards.forEach((c,i)=>{ const r=dc[i]||{}; c.classList.toggle('complete', !!r.done);
       const cs=c.querySelector('.csum'); if(cs) cs.innerHTML=summaryText(exs[i], r); });
   }
-  function setOpen(idx){ updateStatuses(); openIdx=(openIdx===idx?-1:idx); cards.forEach((c,i)=>c.classList.toggle('collapsed', i!==openIdx)); }
+  function setOpen(idx){ updateStatuses(); openIdx=(openIdx===idx?-1:idx); cards.forEach((c,i)=>c.classList.toggle('collapsed', i!==openIdx));
+    if(openIdx>=0 && cardSets[openIdx]) cardSets[openIdx](); }  // rebuild steppers while visible (iOS lays out nested flex correctly)
   afterEdit=updateStatuses;
   exs.forEach((ex,idx)=>{
     const rec=log[idx]||{done:false,sets:[]};
@@ -560,6 +561,7 @@ async function renderList(){
       }
     }
     renderSets();
+    cardSets[idx]=renderSets;   // so the accordion can rebuild this card's sets when it re-opens
 
     const doneBtn=card.querySelector('[data-done]'), cmpBtn=card.querySelector('[data-cmp]');
     function refreshDone(){

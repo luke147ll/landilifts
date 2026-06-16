@@ -170,6 +170,8 @@ header{position:sticky;top:0;z-index:30;background:linear-gradient(180deg,var(--
 .worktop .lasthint{margin-left:auto;font-size:10.5px;color:var(--ovl)}
 .worktop .lasthint b{color:var(--peach)}
 .workfields{display:grid;grid-template-columns:1fr;gap:12px}
+.workfields>*{min-width:0}            /* Safari: let grid items shrink so nested flex sizes correctly */
+.wstep,.stepper{min-width:0}
 .fieldlbl{font-size:10px;color:var(--ovl);letter-spacing:.4px;text-transform:uppercase;margin-bottom:6px;
   font-family:var(--disp);font-weight:700}
 .repsrow{display:flex;align-items:center;gap:10px}
