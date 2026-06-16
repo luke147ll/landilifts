@@ -692,7 +692,7 @@ function guideHTML(){ return `
   <button class="databtn" id="impBtn">↺  Restore from a backup file</button>
   <input type="file" id="impFile" accept="application/json,.json" style="display:none">
   <button class="dangerbtn" id="resetBtn">Reset all logged data</button>
-  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.<br><b style="color:var(--sub1)">build 20260616i</b></div>`;
+  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.<br><b style="color:var(--sub1)">build 20260616j</b></div>`;
 }
 function download(filename, text, mime){
   try{ const blob=new Blob([text],{type:mime||'text/plain'}); const url=URL.createObjectURL(blob);
@@ -767,7 +767,7 @@ const PMETRICS={
   'vol':{name:'Total Volume', unit:'lb', dec:0, calc:sets=>{ let v=0,a=false; for(const s of sets){ if(s.w>0&&s.r>0){ v+=s.w*s.r; a=true; } } return a?v:null; }},
 };
 const GROUP_ORDER=['Chest','Back','Shoulders','Arms','Legs','Core'];
-let progState={ sel:{type:'ex', name:null}, metric:'1rm' };
+let progState={ sel:{type:'full', name:'Full Body'}, metric:'1rm' };
 
 const EX_INDEX={}, GROUP_INDEX={};
 DATA.weeks.forEach(w=>{ ['mon','fri','sat'].forEach(dk=>{ w.days[dk].forEach((ex,i)=>{
@@ -792,6 +792,15 @@ async function groupPoints(){
   for(const o of occ){ const log=await loadDay(o.wk,o.day); const rec=log[o.exIdx];
     if(!rec||!rec.sets) continue; const v=volOf(parseSets(rec.sets));
     if(v>0) byWeek[o.wk]=(byWeek[o.wk]||0)+v; }
+  return Object.keys(byWeek).map(Number).sort((a,b)=>a-b).map(wk=>({label:'Wk '+wk, wk, v:byWeek[wk]}));
+}
+// whole-body weekly volume = w*r summed across every logged movement (all 3 program days)
+async function fullPoints(){
+  const byWeek={};
+  for(let wk=1;wk<=12;wk++){ for(const day of ['mon','fri','sat']){
+    const log=await loadDay(wk,day); const exs=DATA.weeks[wk-1].days[day];
+    exs.forEach((ex,i)=>{ const rec=log[i]; if(!rec||!rec.sets) return; const v=volOf(parseSets(rec.sets)); if(v>0) byWeek[wk]=(byWeek[wk]||0)+v; });
+  }}
   return Object.keys(byWeek).map(Number).sort((a,b)=>a-b).map(wk=>({label:'Wk '+wk, wk, v:byWeek[wk]}));
 }
 
@@ -822,18 +831,18 @@ function chartSVG(pts, prIdx){
 }
 
 async function renderProg(){
-  if(!progState.sel.name) progState.sel={type:'ex', name:DATA.weeks[0].days.mon[0].ex};
-  const isGroup = progState.sel.type==='group';
-  document.querySelector('.bcEyebrow').textContent = isGroup?'Muscle group':'Progression';
+  if(!progState.sel.name) progState.sel={type:'full', name:'Full Body'};
+  const type=progState.sel.type, isVol = type==='group'||type==='full';
+  document.querySelector('.bcEyebrow').textContent = type==='full'?'Total volume':(type==='group'?'Muscle group':'Progression');
   const metricSel=document.getElementById('metricSel');
-  metricSel.style.display = isGroup?'none':'';
+  metricSel.style.display = isVol?'none':'';
   document.getElementById('exSel').innerHTML=`${progState.sel.name} <span class="car">▾</span>`;
-  if(!isGroup) metricSel.innerHTML=`${PMETRICS[progState.metric].name} <span class="car">▾</span>`;
+  if(!isVol) metricSel.innerHTML=`${PMETRICS[progState.metric].name} <span class="car">▾</span>`;
   const cur=document.getElementById('curVal'), pr=document.getElementById('prVal'), upd=document.getElementById('curUpd');
   const lbls=document.querySelectorAll('.bcStats .bcLbl');
 
-  if(isGroup){
-    const pts=await groupPoints();
+  if(isVol){
+    const pts = type==='full'? await fullPoints() : await groupPoints();
     lbls[0].textContent='Change'; lbls[1].textContent='Latest volume';
     let prIdx=-1;
     if(pts.length){
@@ -843,7 +852,7 @@ async function renderProg(){
       cur.innerHTML=`<span style="color:${pct>=0?'var(--green)':'var(--maroon)'}">${sign}${pct.toFixed(0)}%</span>`;
       upd.textContent=`Weekly volume · Wk ${pts[0].wk}–${pts[pts.length-1].wk}`;
       pr.innerHTML=`${Math.round(last).toLocaleString()}<span class="bcUnit"> lb</span>`;
-    } else { cur.textContent='–'; pr.textContent='–'; upd.textContent='Log sets in Train to see this group’s trend.'; }
+    } else { cur.textContent='–'; pr.textContent='–'; upd.textContent=type==='full'?'Log sets in Train to see your volume trend.':'Log sets in Train to see this group’s trend.'; }
     document.getElementById('chartbox').innerHTML=chartSVG(pts, prIdx);
     renderGroupHist(pts);
   } else {
@@ -911,6 +920,8 @@ document.getElementById('exSel').onclick=async()=>{
   const groupHas=g=>(GROUP_INDEX[g]||[]).some(o=>{ const ex=DATA.weeks[o.wk-1].days[o.day][o.exIdx]; return ex&&data.has(ex.ex); });
   let html=`<div class="grab"></div><h2>What do you want to track?</h2>`;
   html+=`<div class="pickhint">${dot(true)} have logged data</div>`;
+  html+=`<h3>Overview</h3>`;
+  html+=`<button class="mopt" data-full="1">Full Body<span>${dot(data.size>0)}total volume</span></button>`;
   html+=`<h3>Muscle groups</h3>`;
   GROUP_ORDER.forEach(g=>{ if(GROUP_INDEX[g]) html+=`<button class="mopt" data-group="${g}">${g}<span>${dot(groupHas(g))}rollup</span></button>`; });
   const seen=new Set();
@@ -926,6 +937,7 @@ document.getElementById('exSel').onclick=async()=>{
 };
 sheet.addEventListener('click',e=>{
   const pm=e.target.closest('[data-pm]'); if(pm){ progState.metric=pm.dataset.pm; scrim.classList.remove('show'); renderProg(); return; }
+  const fb=e.target.closest('[data-full]'); if(fb){ progState.sel={type:'full',name:'Full Body'}; scrim.classList.remove('show'); renderProg(); return; }
   const g=e.target.closest('[data-group]'); if(g){ progState.sel={type:'group',name:g.dataset.group}; scrim.classList.remove('show'); renderProg(); return; }
   const ex=e.target.closest('[data-ex]'); if(ex){ progState.sel={type:'ex',name:ex.dataset.ex}; scrim.classList.remove('show'); renderProg(); return; }
 });
@@ -1027,7 +1039,7 @@ window.addEventListener('online',()=>{ if(isDirty()) flushCloud(); });
 
 /* ---------- boot ---------- */
 (async()=>{
-  progState.sel={type:'ex', name:DATA.weeks[0].days.mon[0].ex};
+  progState.sel={type:'full', name:'Full Body'};
   updateUserChip();
   if(LL_USER){ await bootSync(); }
   else { await renderAll(); showSignin(); }
