@@ -1,8 +1,9 @@
 :root{
-  --crust:#11111b; --mantle:#181825; --base:#1e1e2e;
-  --s0:#313244; --s1:#45475a; --s2:#585b70; --ovl:#6c7086; --ovl1:#7f849c;
-  --text:#cdd6f4; --sub:#a6adc8; --sub1:#bac2de;
-  --mauve:#cba6f7; --lav:#b4befe; --blue:#89b4fa; --sky:#89dceb;
+  /* charcoal/graphite neutrals + warm amber accent (--mauve repurposed as the amber brand) */
+  --crust:#131314; --mantle:#1b1b1d; --base:#222225;
+  --s0:#2e2e31; --s1:#3f3f44; --s2:#54545a; --ovl:#6f6f76; --ovl1:#8a8a90;
+  --text:#e9e9eb; --sub:#a8a8ad; --sub1:#c8c8cc;
+  --mauve:#e3a857; --lav:#e0b878; --blue:#89b4fa; --sky:#89dceb;
   --green:#a6e3a1; --teal:#94e2d5; --peach:#fab387; --yellow:#f9e2af;
   --red:#f38ba8; --maroon:#eba0ac;
   --mon:var(--mauve); --fri:var(--blue); --sat:var(--green);
@@ -41,7 +42,7 @@ header{position:sticky;top:0;z-index:30;background:linear-gradient(180deg,var(--
 .badge.deload{background:rgba(249,226,175,.16);color:var(--yellow);border:1px solid rgba(249,226,175,.35)}
 .badge.vol{background:rgba(166,227,161,.14);color:var(--green);border:1px solid rgba(166,227,161,.32)}
 .badge.found{background:rgba(137,180,250,.14);color:var(--blue);border:1px solid rgba(137,180,250,.3)}
-.badge.ramp{background:rgba(203,166,247,.16);color:var(--mauve);border:1px solid rgba(203,166,247,.32)}
+.badge.ramp{background:rgba(227,168,87,.16);color:var(--mauve);border:1px solid rgba(227,168,87,.34)}
 .badge.wkdone{background:rgba(249,226,175,.16);color:var(--yellow);border:1px solid rgba(249,226,175,.4)}
 
 /* day tabs */
@@ -239,7 +240,7 @@ header{position:sticky;top:0;z-index:30;background:linear-gradient(180deg,var(--
 /* rest timer */
 .fab{position:fixed;right:16px;bottom:calc(18px + env(safe-area-inset-bottom));z-index:40;width:58px;height:58px;border-radius:18px;
   background:var(--mauve);color:var(--crust);font-size:22px;display:flex;align-items:center;justify-content:center;
-  box-shadow:0 10px 30px -8px rgba(203,166,247,.6);font-family:var(--disp);font-weight:700;transition:.15s}
+  box-shadow:0 10px 30px -8px rgba(227,168,87,.55);font-family:var(--disp);font-weight:700;transition:.15s}
 .fab:active{transform:scale(.9)}
 .fab.run{background:var(--peach);box-shadow:0 10px 30px -8px rgba(250,179,135,.6)}
 .timer{position:fixed;left:0;right:0;bottom:0;z-index:45;transform:translateY(110%);transition:.28s cubic-bezier(.2,.7,.2,1);
