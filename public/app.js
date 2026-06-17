@@ -378,8 +378,8 @@ async function renderTabs(){
     const el=document.createElement('button');
     el.className='tab'+(state.day===d.k?' on':''); el.dataset.d=d.k;
     if(d.k==='wed'){
-      const wed=await loadWed(state.wk); const n=wed.groups.length;
-      el.innerHTML=`<div class="ring">${n||''}</div><div class="dow">${d.dow}</div><div class="typ">${d.tab}</div>`;
+      const wed=await loadWed(state.wk); const n=wed.groups.length; const fin=await loadFin(state.wk,'wed');
+      el.innerHTML=`${fin?'<div class="tfin">✓</div>':''}<div class="ring">${n||''}</div><div class="dow">${d.dow}</div><div class="typ">${d.tab}</div>`;
     } else {
       const exs=curWeek().days[d.k];
       const log=await loadDay(state.wk,d.k);
@@ -421,6 +421,14 @@ async function renderWed(){
   });
   card.appendChild(chips);
   list.appendChild(card);
+  // finish-workout bar (Wednesday / Coach Danny session)
+  const fin=await loadFin(state.wk,'wed');
+  const bar=el('div','finbar');
+  bar.innerHTML=fin
+    ? `<button class="finbtn done" id="finBtn">✓ Workout saved — view summary</button>`
+    : `<button class="finbtn" id="finBtn">Finish workout</button>`;
+  bar.querySelector('#finBtn').addEventListener('click',()=> fin? showWedSummary(state.wk,fin) : finishWed());
+  list.appendChild(bar);
   const finwk=await loadFinWk(state.wk);
   const wkbar=el('div','wkbar');
   wkbar.innerHTML=finwk
@@ -428,6 +436,26 @@ async function renderWed(){
     : `<button class="wkbtn" id="wkBtn">Complete Week ${state.wk}</button>`;
   wkbar.querySelector('#wkBtn').addEventListener('click',()=> finwk? showWeekSummary(state.wk,finwk) : completeWeek());
   list.appendChild(wkbar);
+}
+async function finishWed(){
+  const k='bts:fin:w'+state.wk+':wed', fin={at:new Date().toISOString()};
+  try{ await window.storage.set(k, JSON.stringify(fin), false); }catch(_){}
+  finCache[k]=fin; scheduleCloudPush();
+  await renderAll();
+  showWedSummary(state.wk, fin);
+}
+function showWedSummary(wk, fin){
+  (async()=>{ const wed=await loadWed(wk);
+    const groups=wed.groups.length
+      ? `<div class="wedchips" style="padding:0">${wed.groups.map(g=>`<span class="wedchip on" style="pointer-events:none">${esc(g)}</span>`).join('')}</div>`
+      : `<p style="color:var(--ovl)">No muscle groups tagged for this Wednesday.</p>`;
+    sheet.innerHTML=`<div class="grab"></div><h2>Wednesday complete</h2>`
+      +`<p>Coach Danny · Week ${wk}${fin&&fin.at?` · saved ${new Date(fin.at).toLocaleDateString()}`:''}</p>`
+      +`<div class="mlbl" style="font-family:var(--disp);font-size:10px;letter-spacing:.6px;text-transform:uppercase;color:var(--ovl);margin:16px 0 9px">Muscle groups worked</div>`
+      +groups
+      +`<button class="databtn" id="summClose" style="margin-top:18px">Close</button>`;
+    scrim.classList.add('show');
+  })();
 }
 
 async function renderList(){
@@ -692,7 +720,7 @@ function guideHTML(){ return `
   <button class="databtn" id="impBtn">↺  Restore from a backup file</button>
   <input type="file" id="impFile" accept="application/json,.json" style="display:none">
   <button class="dangerbtn" id="resetBtn">Reset all logged data</button>
-  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.<br><b style="color:var(--sub1)">build 20260616k</b></div>`;
+  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.<br><b style="color:var(--sub1)">build 20260617a</b></div>`;
 }
 function download(filename, text, mime){
   try{ const blob=new Blob([text],{type:mime||'text/plain'}); const url=URL.createObjectURL(blob);
@@ -803,6 +831,29 @@ async function fullPoints(){
   }}
   return Object.keys(byWeek).map(Number).sort((a,b)=>a-b).map(wk=>({label:'Wk '+wk, wk, v:byWeek[wk]}));
 }
+// Coach Danny (Wednesdays): how often each muscle group was tagged across weeks
+async function coachData(){
+  const counts={}; WED_GROUPS.forEach(g=>counts[g]=0); const weeks=[]; let total=0;
+  for(let wk=1;wk<=12;wk++){ const wed=await loadWed(wk);
+    if(wed.groups&&wed.groups.length){ total++; weeks.push({wk, groups:wed.groups.slice()});
+      wed.groups.forEach(g=>{ counts[g]=(counts[g]||0)+1; }); } }
+  return {counts, weeks, total};
+}
+function coachBars(data){
+  if(!data.total) return '<div class="empty">No Wednesday sessions yet.<br>On <b>WED</b>, tap the muscle groups Coach Danny worked.</div>';
+  const groups=WED_GROUPS.filter(g=>data.counts[g]>0).sort((a,b)=>data.counts[b]-data.counts[a]);
+  const max=Math.max(1,...groups.map(g=>data.counts[g]));
+  return '<div class="cbars">'+groups.map(g=>{ const n=data.counts[g];
+    return `<div class="cbar"><div class="cbar-l">${esc(g)}</div><div class="cbar-track"><div class="cbar-fill" style="width:${Math.round(n/max*100)}%"></div></div><div class="cbar-n">${n}</div></div>`;
+  }).join('')+'</div>';
+}
+function renderCoachHist(data){
+  const el=document.getElementById('histList');
+  if(!data.weeks.length){ el.style.display='none'; el.innerHTML=''; return; }
+  el.style.display='';
+  const rows=[...data.weeks].reverse().map((w,i)=>`<div class="hrow${i===0?' first':''}"><div class="hd">Wk ${w.wk}</div><div class="hv">${w.groups.map(esc).join(', ')}</div></div>`).join('');
+  el.innerHTML=`<div class="lcTtl">Wednesdays · Coach Danny</div>`+rows;
+}
 
 function chartSVG(pts, prIdx){
   const W=348,H=210,padL=10,padR=46,padT=18,padB=30, pw=W-padL-padR, ph=H-padT-padB;
@@ -832,16 +883,25 @@ function chartSVG(pts, prIdx){
 
 async function renderProg(){
   if(!progState.sel.name) progState.sel={type:'full', name:'Full Body'};
-  const type=progState.sel.type, isVol = type==='group'||type==='full';
-  document.querySelector('.bcEyebrow').textContent = type==='full'?'Total volume':(type==='group'?'Muscle group':'Progression');
+  const type=progState.sel.type, isVol = type==='group'||type==='full', noMetric = isVol||type==='coach';
+  document.querySelector('.bcEyebrow').textContent = type==='coach'?'Coach Danny':(type==='full'?'Total volume':(type==='group'?'Muscle group':'Progression'));
   const metricSel=document.getElementById('metricSel');
-  metricSel.style.display = isVol?'none':'';
+  metricSel.style.display = noMetric?'none':'';
   document.getElementById('exSel').innerHTML=`${progState.sel.name} <span class="car">▾</span>`;
-  if(!isVol) metricSel.innerHTML=`${PMETRICS[progState.metric].name} <span class="car">▾</span>`;
+  if(!noMetric) metricSel.innerHTML=`${PMETRICS[progState.metric].name} <span class="car">▾</span>`;
   const cur=document.getElementById('curVal'), pr=document.getElementById('prVal'), upd=document.getElementById('curUpd');
   const lbls=document.querySelectorAll('.bcStats .bcLbl');
 
-  if(isVol){
+  if(type==='coach'){
+    const data=await coachData();
+    lbls[0].textContent='Sessions'; lbls[1].textContent='Top area';
+    let topG='–', topN=0; Object.entries(data.counts).forEach(([g,n])=>{ if(n>topN){topN=n;topG=g;} });
+    cur.innerHTML = data.total? String(data.total) : '–';
+    pr.innerHTML = topN? `<span style="font-size:20px">${esc(topG)}</span>` : '–';
+    upd.textContent = data.total? 'Muscle groups Coach Danny targeted (Wednesdays)' : 'Tag muscle groups on Wednesdays to see this.';
+    document.getElementById('chartbox').innerHTML=coachBars(data);
+    renderCoachHist(data);
+  } else if(isVol){
     const pts = type==='full'? await fullPoints() : await groupPoints();
     lbls[0].textContent='Change'; lbls[1].textContent='Latest volume';
     let prIdx=-1;
@@ -917,11 +977,13 @@ async function exDataSet(){
 const dot=have=> have?'<i class="dbadge" title="has logged data"></i>':'';
 document.getElementById('exSel').onclick=async()=>{
   const data=await exDataSet();
+  const coach=await coachData();
   const groupHas=g=>(GROUP_INDEX[g]||[]).some(o=>{ const ex=DATA.weeks[o.wk-1].days[o.day][o.exIdx]; return ex&&data.has(ex.ex); });
   let html=`<div class="grab"></div><h2>What do you want to track?</h2>`;
   html+=`<div class="pickhint">${dot(true)} have logged data</div>`;
   html+=`<h3>Overview</h3>`;
   html+=`<button class="mopt" data-full="1">Full Body<span>${dot(data.size>0)}total volume</span></button>`;
+  html+=`<button class="mopt" data-coach="1">Coach Danny<span>${dot(coach.total>0)}Wed muscle map</span></button>`;
   html+=`<h3>Muscle groups</h3>`;
   GROUP_ORDER.forEach(g=>{ if(GROUP_INDEX[g]) html+=`<button class="mopt" data-group="${g}">${g}<span>${dot(groupHas(g))}rollup</span></button>`; });
   const seen=new Set();
@@ -938,6 +1000,7 @@ document.getElementById('exSel').onclick=async()=>{
 sheet.addEventListener('click',e=>{
   const pm=e.target.closest('[data-pm]'); if(pm){ progState.metric=pm.dataset.pm; scrim.classList.remove('show'); renderProg(); return; }
   const fb=e.target.closest('[data-full]'); if(fb){ progState.sel={type:'full',name:'Full Body'}; scrim.classList.remove('show'); renderProg(); return; }
+  const co=e.target.closest('[data-coach]'); if(co){ progState.sel={type:'coach',name:'Coach Danny'}; scrim.classList.remove('show'); renderProg(); return; }
   const g=e.target.closest('[data-group]'); if(g){ progState.sel={type:'group',name:g.dataset.group}; scrim.classList.remove('show'); renderProg(); return; }
   const ex=e.target.closest('[data-ex]'); if(ex){ progState.sel={type:'ex',name:ex.dataset.ex}; scrim.classList.remove('show'); renderProg(); return; }
 });

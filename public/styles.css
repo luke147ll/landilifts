@@ -339,6 +339,13 @@ header{position:sticky;top:0;z-index:30;background:linear-gradient(180deg,var(--
 .chart .goalline{stroke:rgba(166,227,161,.5);stroke-width:1.5;stroke-dasharray:4 4}
 .chart .goaltxt{fill:var(--green);font-size:10px;font-family:var(--body)}
 .empty{color:var(--sub);text-align:center;padding:44px 10px;font-size:13px;line-height:1.6}
+/* Coach Danny muscle-frequency bars (Progress) */
+.cbars{padding:6px 0 2px}
+.cbar{display:grid;grid-template-columns:80px 1fr 24px;gap:10px;align-items:center;margin:10px 0}
+.cbar-l{font-size:13px;color:#dfeef2;font-weight:600}
+.cbar-track{height:11px;background:rgba(0,0,0,.28);border-radius:6px;overflow:hidden}
+.cbar-fill{height:100%;background:var(--peach);border-radius:6px;min-width:4px}
+.cbar-n{text-align:right;font-family:var(--disp);font-weight:700;font-size:13px;color:#eafdff}
 .logcard,.goalcard,.histcard{background:var(--mantle);border:1px solid var(--s0);border-radius:16px;padding:14px;margin-bottom:14px}
 .lcTtl{font-family:var(--disp);font-weight:700;font-size:13px;margin-bottom:11px}
 .logrow{display:flex;gap:10px;align-items:flex-end;margin-bottom:10px}
