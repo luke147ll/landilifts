@@ -299,7 +299,41 @@ function showWorkoutSummary(wk,day,fin){
     scrim.classList.add('show');
   })();
 }
+// On finishing a workout, capture every set the lifter put a value into —
+// even if they never tapped "Done set"/"Mark complete". For any set with a
+// weight OR reps entered, backfill the missing field from the shown default
+// (carry-forward weight / last-week reps, else 8) and mark it done. Untouched
+// sets (no weight and no reps) are left empty — we don't invent lifts.
+function commitDayInputs(wk, day){
+  const exs=(DATA.weeks[wk-1]&&DATA.weeks[wk-1].days[day])||[];
+  if(!exs.length) return false;
+  const dc=dayCache[keyFor(wk,day)]; if(!dc) return false;
+  let prevByName={};
+  if(wk>1){ const pExs=(DATA.weeks[wk-2]&&DATA.weeks[wk-2].days[day])||[]; const pLog=dayCache[keyFor(wk-1,day)]||{};
+    pExs.forEach((pe,pi)=>{ if(pLog[pi]) prevByName[pe.ex]=pLog[pi].sets||[]; }); }
+  const has=v=> v!==undefined&&v!==null&&v!=='';
+  let changed=false;
+  exs.forEach((ex,idx)=>{
+    const rec=dc[idx]; if(!rec||!rec.sets||!rec.sets.length) return;
+    const nSets=ex.sets||2, prev=prevByName[ex.ex]||[];
+    const repsPre=s=>{ const pv=prev[s]||{}; return has(pv.r)?String(pv.r):'8'; };
+    const carryW=s=>{ for(let p=s-1;p>=0;p--){ const w=rec.sets[p]&&rec.sets[p].w; if(has(w)) return String(w); } const pv=prev[s]||{}; return has(pv.w)?String(pv.w):null; };
+    for(let s=0;s<nSets;s++){ const sv=rec.sets[s]; if(!sv) continue;
+      if(!has(sv.w)&&!has(sv.r)) continue;                 // untouched set
+      if(!has(sv.w)){ const w=carryW(s); if(w!=null){ sv.w=w; changed=true; } }
+      if(!has(sv.r)){ sv.r=repsPre(s); changed=true; }
+      if(has(sv.w)&&has(sv.r)&&!sv.done){ sv.done=true; changed=true; }
+    }
+    let all=nSets>0; for(let s=0;s<nSets;s++){ if(!(rec.sets[s]&&rec.sets[s].done)){ all=false; break; } }
+    if(all&&!rec.done){ rec.done=true; changed=true; }
+  });
+  return changed;
+}
 async function finishWorkout(){
+  const dk=keyFor(state.wk,state.day);
+  if(commitDayInputs(state.wk, state.day)){
+    try{ await window.storage.set(dk, JSON.stringify(dayCache[dk]||{}), false); }catch(_){}
+  }
   const k='bts:fin:w'+state.wk+':'+state.day; const fin={at:new Date().toISOString()};
   try{ await window.storage.set(k, JSON.stringify(fin), false); }catch(_){}
   finCache[k]=fin;
@@ -600,7 +634,10 @@ async function renderList(){
       updateStatuses();
     }
     function toggleDone(){ const r=liveRec(idx); const target=!r.done; r.sets=r.sets||[];
-      for(let s=0;s<nSets;s++){ while(r.sets.length<=s) r.sets.push({}); r.sets[s].done=target; }
+      for(let s=0;s<nSets;s++){ while(r.sets.length<=s) r.sets.push({}); const sv=r.sets[s];
+        if(target){ if(sv.w===undefined||sv.w===''){ const w=carryWeight(s); if(w!=null) sv.w=w; }
+          if(sv.r===undefined||sv.r==='') sv.r=repsPre(s); }
+        sv.done=target; }
       r.done=target; queueSave(state.wk,state.day); openS=target?-1:0; refreshCounts(); refreshDone(); renderSets(); }
     doneBtn.addEventListener('click',toggleDone);
     cmpBtn.addEventListener('click',toggleDone);
@@ -720,7 +757,7 @@ function guideHTML(){ return `
   <button class="databtn" id="impBtn">↺  Restore from a backup file</button>
   <input type="file" id="impFile" accept="application/json,.json" style="display:none">
   <button class="dangerbtn" id="resetBtn">Reset all logged data</button>
-  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.<br><b style="color:var(--sub1)">build 20260620c</b></div>`;
+  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.<br><b style="color:var(--sub1)">build 20260620d</b></div>`;
 }
 function download(filename, text, mime){
   try{ const blob=new Blob([text],{type:mime||'text/plain'}); const url=URL.createObjectURL(blob);
