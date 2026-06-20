@@ -492,3 +492,17 @@ header{position:sticky;top:0;z-index:30;background:linear-gradient(180deg,var(--
 .sibtn[data-user="walt"]:active{border-color:var(--sky);box-shadow:0 0 0 1px var(--sky),0 8px 24px -12px var(--sky)}
 .sinote{font-size:12px;color:var(--ovl);margin-top:22px;line-height:1.5}
 .sibuild{font-size:10px;color:var(--ovl);margin-top:16px;letter-spacing:.5px}
+
+/* cold-start splash */
+.splash{position:fixed;inset:0;z-index:100;background:linear-gradient(180deg,var(--crust),var(--base));
+  display:flex;align-items:center;justify-content:center;text-align:center;
+  padding:calc(24px + env(safe-area-inset-top)) 28px;
+  transition:opacity .55s ease,visibility .55s ease}
+.splash.hide{opacity:0;visibility:hidden;pointer-events:none}
+.splashin{display:flex;flex-direction:column;align-items:center;gap:20px;animation:sprise .8s cubic-bezier(.2,.7,.2,1) both}
+.splogo{font-family:var(--disp);font-weight:700;font-size:42px;letter-spacing:.5px;color:var(--text);line-height:1}
+.splogo .b2{color:var(--mauve);font-weight:400}
+.spline{width:46px;height:3px;border-radius:2px;background:var(--mauve);opacity:.9}
+.spquote{font-family:var(--body);font-style:italic;font-size:15px;line-height:1.65;color:var(--sub1);max-width:280px}
+.spquote b{color:var(--mauve);font-style:normal;font-weight:700}
+@keyframes sprise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
