@@ -720,7 +720,7 @@ function guideHTML(){ return `
   <button class="databtn" id="impBtn">↺  Restore from a backup file</button>
   <input type="file" id="impFile" accept="application/json,.json" style="display:none">
   <button class="dangerbtn" id="resetBtn">Reset all logged data</button>
-  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.<br><b style="color:var(--sub1)">build 20260617a</b></div>`;
+  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.<br><b style="color:var(--sub1)">build 20260620a</b></div>`;
 }
 function download(filename, text, mime){
   try{ const blob=new Blob([text],{type:mime||'text/plain'}); const url=URL.createObjectURL(blob);
@@ -881,6 +881,31 @@ function chartSVG(pts, prIdx){
     ${grid}${darea?`<path d="${darea}" fill="url(#ag)"/>`:''}<path d="${dline}" class="cline"/>${dots}${ylab}${xlab}</svg>`;
 }
 
+// Bar chart for week-to-week comparison of a single movement.
+function barChartSVG(pts, prIdx, m){
+  const W=348,H=210,padL=8,padR=8,padT=24,padB=30, pw=W-padL-padR, ph=H-padT-padB;
+  if(pts.length===0) return '<div class="empty">Nothing logged for this yet.<br>Enter your weight × reps in <b>Train</b> and the bars will plot here.</div>';
+  const vals=pts.map(p=>p.v), hi=Math.max(...vals), lo=Math.min(...vals);
+  // zoomed baseline so week-to-week gains are visible; floored at 0
+  let base = hi===lo ? Math.max(0, lo-Math.max(5,lo*0.08)) : Math.max(0, lo-(hi-lo)*0.55);
+  let top = hi + (hi-base)*0.16 || hi+5; if(top<=base) top=base+1;
+  const dec=m?m.dec:0;
+  const fmt=v=> dec>0? v.toFixed(dec) : (v>=1000? (Math.round(v/100)/10)+'k' : Math.round(v).toString());
+  const n=pts.length, slot=pw/n, bw=Math.min(46, slot*0.62);
+  const baseY=padT+ph;
+  const Y=v=> baseY - (v-base)/(top-base)*ph;
+  let bars='';
+  pts.forEach((p,i)=>{
+    const cx=padL+slot*i+slot/2, x=cx-bw/2, y=Y(p.v), h=Math.max(2,baseY-y);
+    const pr = i===prIdx;
+    bars+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="4" class="bar${pr?' barpr':''}"/>`;
+    bars+=`<text x="${cx.toFixed(1)}" y="${(y-7).toFixed(1)}" class="bval${pr?' bvalpr':''}">${fmt(p.v)}</text>`;
+    bars+=`<text x="${cx.toFixed(1)}" y="${H-10}" class="bxl">${esc(p.label)}</text>`;
+  });
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" class="chart bchart" role="img">
+    <line x1="${padL}" y1="${baseY.toFixed(1)}" x2="${padL+pw}" y2="${baseY.toFixed(1)}" class="bbase"/>${bars}</svg>`;
+}
+
 async function renderProg(){
   if(!progState.sel.name) progState.sel={type:'full', name:'Full Body'};
   const type=progState.sel.type, isVol = type==='group'||type==='full', noMetric = isVol||type==='coach';
@@ -928,7 +953,7 @@ async function renderProg(){
         cur.innerHTML+=` <span class="delta ${diff===0?'':(good?'good':'bad')}">${ar}${Math.abs(diff).toFixed(m.dec)}</span>`; }
       pr.innerHTML=`${best.toFixed(m.dec)}<span class="bcUnit">${uSuffix}</span>`;
     } else { cur.textContent='–'; pr.textContent='–'; upd.textContent=''; }
-    document.getElementById('chartbox').innerHTML=chartSVG(pts, prIdx);
+    document.getElementById('chartbox').innerHTML=barChartSVG(pts, prIdx, m);
     renderExHist(pts);
   }
 }
