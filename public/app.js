@@ -720,7 +720,7 @@ function guideHTML(){ return `
   <button class="databtn" id="impBtn">↺  Restore from a backup file</button>
   <input type="file" id="impFile" accept="application/json,.json" style="display:none">
   <button class="dangerbtn" id="resetBtn">Reset all logged data</button>
-  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.<br><b style="color:var(--sub1)">build 20260620b</b></div>`;
+  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.<br><b style="color:var(--sub1)">build 20260620c</b></div>`;
 }
 function download(filename, text, mime){
   try{ const blob=new Blob([text],{type:mime||'text/plain'}); const url=URL.createObjectURL(blob);
@@ -906,8 +906,15 @@ function barChartSVG(pts, prIdx, m){
     <line x1="${padL}" y1="${baseY.toFixed(1)}" x2="${padL+pw}" y2="${baseY.toFixed(1)}" class="bbase"/>${bars}</svg>`;
 }
 
-// heaviest working set that day (tie-break on reps), as {w,r}
-function topSet(sets){ let b=null; for(const s of sets){ if(s.w>0&&(b==null||s.w>b.w||(s.w===b.w&&s.r>b.r))) b=s; } return b; }
+// Heaviest *complete* working set (weight AND reps) so reps always display;
+// falls back to heaviest weight-only set if none have reps logged.
+function topSet(sets){
+  let b=null, any=null;
+  for(const s of sets){ if(s.w<=0) continue;
+    if(any==null||s.w>any.w||(s.w===any.w&&s.r>any.r)) any=s;
+    if(s.r>0&&(b==null||s.w>b.w||(s.w===b.w&&s.r>b.r))) b=s; }
+  return b||any;
+}
 function fmtSet(t){ return t? `${t.w}×${t.r||'–'}` : '–'; }
 // Every movement's latest logged week vs the one before — the at-a-glance progress board.
 async function overviewData(){
