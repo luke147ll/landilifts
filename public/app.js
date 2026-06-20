@@ -115,7 +115,7 @@ function loadoutSVG(base, perSide){
   const hub=`<rect x="${(cx-hubW/2).toFixed(1)}" y="${cy-19}" width="${hubW}" height="38" rx="6" class="lhub"/>`
     +`<text x="${cx.toFixed(1)}" y="${(cy+4).toFixed(1)}" class="lhubt">${base}</text>`;
   const note= rem>0.001? `<text x="${cx.toFixed(1)}" y="${H-2}" class="lprem">+${rem} more/side</text>`:'';
-  return `<svg width="${W.toFixed(0)}" height="${H}" viewBox="0 0 ${W.toFixed(0)} ${H}" class="wload" role="img" aria-label="plate loadout per side">${bars}${hub}${note}</svg>`;
+  return `<svg viewBox="0 0 ${W.toFixed(0)} ${H}" preserveAspectRatio="xMidYMid meet" class="wload" style="max-width:${W.toFixed(0)}px" role="img" aria-label="plate loadout per side">${bars}${hub}${note}</svg>`;
 }
 
 // live mutable record for the current day (mutations persist via queueSave)
@@ -782,7 +782,7 @@ function guideHTML(){ return `
   <button class="databtn" id="impBtn">↺  Restore from a backup file</button>
   <input type="file" id="impFile" accept="application/json,.json" style="display:none">
   <button class="dangerbtn" id="resetBtn">Reset all logged data</button>
-  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.<br><b style="color:var(--sub1)">build 20260620g</b></div>`;
+  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.<br><b style="color:var(--sub1)">build 20260620k</b></div>`;
 }
 function download(filename, text, mime){
   try{ const blob=new Blob([text],{type:mime||'text/plain'}); const url=URL.createObjectURL(blob);

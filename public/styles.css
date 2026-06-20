@@ -185,7 +185,7 @@ header{position:sticky;top:0;z-index:30;background:linear-gradient(180deg,var(--
   color:var(--text);font-family:var(--disp);font-weight:700;font-size:22px;line-height:1;
   display:flex;align-items:center;justify-content:center;transition:transform .15s}
 .wbig:active{transform:scale(.9)}
-.wplate{min-width:0;height:46px;background:var(--crust);border:1px solid var(--s1);border-radius:12px;
+.wplate{min-width:0;min-height:46px;padding:4px 0;background:var(--crust);border:1px solid var(--s1);border-radius:12px;
   display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:text}
 .wplate.touched{border-color:var(--blue)}
 .wplate .wrow{display:flex;align-items:baseline;gap:4px}
@@ -194,7 +194,7 @@ header{position:sticky;top:0;z-index:30;background:linear-gradient(180deg,var(--
 .wplate.touched .wnum{color:var(--text)}
 .wplate .wunit{font-size:10px;color:var(--ovl)}
 .wplate .wside{font-size:9px;color:var(--ovl);margin-top:1px;font-family:var(--body)}
-.wplate .wload{display:block;margin:5px auto 0;max-width:100%;height:auto}
+.wplate .wload{display:block;margin:5px auto 0;width:100%;height:60px;flex:0 0 auto}
 .wload .lpl{fill:var(--s1);stroke:var(--s2);stroke-width:1}
 .wload .lpt{fill:var(--sub1);font:600 8px var(--body);text-anchor:middle;dominant-baseline:middle}
 .wload .lhub{fill:var(--mauve)}
