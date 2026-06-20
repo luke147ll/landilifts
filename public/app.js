@@ -720,7 +720,7 @@ function guideHTML(){ return `
   <button class="databtn" id="impBtn">↺  Restore from a backup file</button>
   <input type="file" id="impFile" accept="application/json,.json" style="display:none">
   <button class="dangerbtn" id="resetBtn">Reset all logged data</button>
-  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.<br><b style="color:var(--sub1)">build 20260620a</b></div>`;
+  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.<br><b style="color:var(--sub1)">build 20260620b</b></div>`;
 }
 function download(filename, text, mime){
   try{ const blob=new Blob([text],{type:mime||'text/plain'}); const url=URL.createObjectURL(blob);
@@ -906,10 +906,63 @@ function barChartSVG(pts, prIdx, m){
     <line x1="${padL}" y1="${baseY.toFixed(1)}" x2="${padL+pw}" y2="${baseY.toFixed(1)}" class="bbase"/>${bars}</svg>`;
 }
 
+// heaviest working set that day (tie-break on reps), as {w,r}
+function topSet(sets){ let b=null; for(const s of sets){ if(s.w>0&&(b==null||s.w>b.w||(s.w===b.w&&s.r>b.r))) b=s; } return b; }
+function fmtSet(t){ return t? `${t.w}×${t.r||'–'}` : '–'; }
+// Every movement's latest logged week vs the one before — the at-a-glance progress board.
+async function overviewData(){
+  const m=PMETRICS[progState.metric];
+  const order=['mon','fri','sat'], dayLabel={mon:'Monday',fri:'Friday',sat:'Saturday'};
+  const byDay={mon:[],fri:[],sat:[]};
+  for(const day of order){
+    const names=[], seen=new Set();
+    for(let wk=1;wk<=12;wk++){ const exs=(DATA.weeks[wk-1]&&DATA.weeks[wk-1].days[day])||[];
+      exs.forEach(ex=>{ if(!seen.has(ex.ex)){seen.add(ex.ex);names.push(ex.ex);} }); }
+    for(const name of names){
+      const occ=(EX_INDEX[name]||[]).filter(o=>o.day===day).sort((a,b)=>a.wk-b.wk);
+      const pts=[];
+      for(const o of occ){ const log=await loadDay(o.wk,o.day); const rec=log[o.exIdx];
+        if(!rec||!rec.sets) continue; const sets=parseSets(rec.sets); const v=m.calc(sets);
+        if(v==null||isNaN(v)) continue; pts.push({wk:o.wk, v, top:topSet(sets)}); }
+      if(!pts.length) continue;
+      byDay[day].push({name, cur:pts[pts.length-1], prev:pts.length>1?pts[pts.length-2]:null});
+    }
+  }
+  return {byDay, m, order, dayLabel};
+}
+function overviewBoard(data){
+  const {byDay,m,order,dayLabel}=data;
+  let maxAbs=0;
+  order.forEach(d=>byDay[d].forEach(r=>{ if(r.prev&&r.prev.v){ const p=Math.abs((r.cur.v-r.prev.v)/r.prev.v*100); if(p>maxAbs)maxAbs=p; } }));
+  if(maxAbs<1) maxAbs=1;
+  let any=false, html='';
+  order.forEach(d=>{
+    const rows=byDay[d]; if(!rows.length) return; any=true;
+    html+=`<div class="ovgrptt">${dayLabel[d]}</div>`;
+    rows.forEach(r=>{
+      const sets = r.prev ? `${fmtSet(r.prev.top)} <span class="ovar">→</span> ${fmtSet(r.cur.top)}` : fmtSet(r.cur.top);
+      let bar='', delta='';
+      if(r.prev){
+        const diff=r.cur.v-r.prev.v, pct=r.prev.v?diff/r.prev.v*100:0;
+        const up=diff>0.0001, down=diff<-0.0001, cls=up?'up':down?'down':'flat';
+        const w=Math.min(50, Math.abs(pct)/maxAbs*50);
+        if(up) bar=`<div class="ovf up" style="left:50%;width:${w}%"></div>`;
+        else if(down) bar=`<div class="ovf down" style="left:${(50-w)}%;width:${w}%"></div>`;
+        const ar=up?'↑':down?'↓':'→';
+        const dv=Math.abs(diff)>=1?Math.round(Math.abs(diff)):Math.abs(diff).toFixed(m.dec);
+        delta=`<div class="ovd ${cls}">${(up||down)?ar+dv:'→'}</div>`;
+      } else { delta=`<div class="ovd new">new</div>`; }
+      html+=`<div class="ovrow"><div class="ovname">${esc(r.name)}<span class="ovsets">${sets}</span></div><div class="ovbar"><div class="ovc"></div>${bar}</div>${delta}</div>`;
+    });
+  });
+  if(!any) return '<div class="empty">No movements logged yet.<br>Log sets in <b>Train</b> to see your week-over-week overview.</div>';
+  return `<div class="ovboard">${html}</div>`;
+}
+
 async function renderProg(){
   if(!progState.sel.name) progState.sel={type:'full', name:'Full Body'};
   const type=progState.sel.type, isVol = type==='group'||type==='full', noMetric = isVol||type==='coach';
-  document.querySelector('.bcEyebrow').textContent = type==='coach'?'Coach Danny':(type==='full'?'Total volume':(type==='group'?'Muscle group':'Progression'));
+  document.querySelector('.bcEyebrow').textContent = type==='coach'?'Coach Danny':(type==='all'?'All movements':(type==='full'?'Total volume':(type==='group'?'Muscle group':'Progression')));
   const metricSel=document.getElementById('metricSel');
   metricSel.style.display = noMetric?'none':'';
   document.getElementById('exSel').innerHTML=`${progState.sel.name} <span class="car">▾</span>`;
@@ -917,7 +970,18 @@ async function renderProg(){
   const cur=document.getElementById('curVal'), pr=document.getElementById('prVal'), upd=document.getElementById('curUpd');
   const lbls=document.querySelectorAll('.bcStats .bcLbl');
 
-  if(type==='coach'){
+  if(type==='all'){
+    const data=await overviewData();
+    let up=0,down=0,flat=0,nw=0;
+    data.order.forEach(d=>data.byDay[d].forEach(r=>{ if(!r.prev){nw++;return;}
+      const diff=r.cur.v-r.prev.v; if(diff>0.0001)up++; else if(diff<-0.0001)down++; else flat++; }));
+    lbls[0].textContent='Progressed'; lbls[1].textContent='Slipped';
+    cur.innerHTML = (up+down+flat+nw)? `<span style="color:var(--green)">${up} ↑</span>` : '–';
+    pr.innerHTML  = (up+down+flat+nw)? `<span style="color:${down?'var(--maroon)':'var(--ovl)'}">${down} ↓</span>` : '–';
+    upd.textContent = (up+down+flat+nw)? `${data.m.name} · latest week vs the one before · top set shown` : 'Log sets in Train to see this.';
+    document.getElementById('chartbox').innerHTML=overviewBoard(data);
+    const hl=document.getElementById('histList'); hl.style.display='none'; hl.innerHTML='';
+  } else if(type==='coach'){
     const data=await coachData();
     lbls[0].textContent='Sessions'; lbls[1].textContent='Top area';
     let topG='–', topN=0; Object.entries(data.counts).forEach(([g,n])=>{ if(n>topN){topN=n;topG=g;} });
@@ -1007,6 +1071,7 @@ document.getElementById('exSel').onclick=async()=>{
   let html=`<div class="grab"></div><h2>What do you want to track?</h2>`;
   html+=`<div class="pickhint">${dot(true)} have logged data</div>`;
   html+=`<h3>Overview</h3>`;
+  html+=`<button class="mopt" data-all="1">All movements<span>${dot(data.size>0)}week vs week</span></button>`;
   html+=`<button class="mopt" data-full="1">Full Body<span>${dot(data.size>0)}total volume</span></button>`;
   html+=`<button class="mopt" data-coach="1">Coach Danny<span>${dot(coach.total>0)}Wed muscle map</span></button>`;
   html+=`<h3>Muscle groups</h3>`;
@@ -1024,6 +1089,7 @@ document.getElementById('exSel').onclick=async()=>{
 };
 sheet.addEventListener('click',e=>{
   const pm=e.target.closest('[data-pm]'); if(pm){ progState.metric=pm.dataset.pm; scrim.classList.remove('show'); renderProg(); return; }
+  const al=e.target.closest('[data-all]'); if(al){ progState.sel={type:'all',name:'All movements'}; scrim.classList.remove('show'); renderProg(); return; }
   const fb=e.target.closest('[data-full]'); if(fb){ progState.sel={type:'full',name:'Full Body'}; scrim.classList.remove('show'); renderProg(); return; }
   const co=e.target.closest('[data-coach]'); if(co){ progState.sel={type:'coach',name:'Coach Danny'}; scrim.classList.remove('show'); renderProg(); return; }
   const g=e.target.closest('[data-group]'); if(g){ progState.sel={type:'group',name:g.dataset.group}; scrim.classList.remove('show'); renderProg(); return; }
