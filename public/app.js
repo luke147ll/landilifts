@@ -757,7 +757,7 @@ function guideHTML(){ return `
   <button class="databtn" id="impBtn">↺  Restore from a backup file</button>
   <input type="file" id="impFile" accept="application/json,.json" style="display:none">
   <button class="dangerbtn" id="resetBtn">Reset all logged data</button>
-  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.<br><b style="color:var(--sub1)">build 20260620d</b></div>`;
+  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.<br><b style="color:var(--sub1)">build 20260620e</b></div>`;
 }
 function download(filename, text, mime){
   try{ const blob=new Blob([text],{type:mime||'text/plain'}); const url=URL.createObjectURL(blob);
@@ -832,7 +832,7 @@ const PMETRICS={
   'vol':{name:'Total Volume', unit:'lb', dec:0, calc:sets=>{ let v=0,a=false; for(const s of sets){ if(s.w>0&&s.r>0){ v+=s.w*s.r; a=true; } } return a?v:null; }},
 };
 const GROUP_ORDER=['Chest','Back','Shoulders','Arms','Legs','Core'];
-let progState={ sel:{type:'full', name:'Full Body'}, metric:'1rm' };
+let progState={ sel:{type:'all', name:'All movements'}, metric:'1rm' };
 
 const EX_INDEX={}, GROUP_INDEX={};
 DATA.weeks.forEach(w=>{ ['mon','fri','sat'].forEach(dk=>{ w.days[dk].forEach((ex,i)=>{
@@ -1004,7 +1004,7 @@ function overviewBoard(data){
 }
 
 async function renderProg(){
-  if(!progState.sel.name) progState.sel={type:'full', name:'Full Body'};
+  if(!progState.sel.name) progState.sel={type:'all', name:'All movements'};
   const type=progState.sel.type, isVol = type==='group'||type==='full', noMetric = isVol||type==='coach';
   document.querySelector('.bcEyebrow').textContent = type==='coach'?'Coach Danny':(type==='all'?'All movements':(type==='full'?'Total volume':(type==='group'?'Muscle group':'Progression')));
   const metricSel=document.getElementById('metricSel');
@@ -1243,7 +1243,7 @@ document.addEventListener('visibilitychange',()=>{ if(!document.hidden) showToda
 
 /* ---------- boot ---------- */
 (async()=>{
-  progState.sel={type:'full', name:'Full Body'};
+  progState.sel={type:'all', name:'All movements'};
   updateUserChip();
   if(LL_USER){ await bootSync(); }
   else { await renderAll(); showSignin(); }
