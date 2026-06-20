@@ -95,6 +95,29 @@ function resTypeFor(name){
 }
 const e1rm=(w,r)=> (w>0&&r>0)? Math.round(w*(1+r/30)) : 0;
 
+// ---- plate loadout diagram (leg press / barbell) ----
+const LP_DENOMS=[45,25,10,5,2.5];
+function plateBreak(perSide){ const out=[]; let rem=Math.round(perSide*100)/100;
+  for(const d of LP_DENOMS){ while(rem>=d-0.001){ out.push(d); rem=Math.round((rem-d)*100)/100; } }
+  return {plates:out, rem}; }
+function loadoutSVG(base, perSide){
+  const {plates,rem}=plateBreak(perSide);
+  if(!plates.length) return '';
+  const hubW=46, pw=14, gap=3, H=62, cy=29;
+  const sideW=plates.length*(pw+gap), W=hubW+2*sideW+10, cx=W/2;
+  const ph=d=> d>=45?50:d>=25?42:d>=10?32:d>=5?26:20;
+  const rect=(x,d)=>{ const h=ph(d), y=cy-h/2, lx=(x+pw/2).toFixed(1);
+    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${pw}" height="${h}" rx="2.5" class="lpl"/>`
+      +`<text x="${lx}" y="${cy}" transform="rotate(-90 ${lx} ${cy})" class="lpt">${d}</text>`; };
+  let bars='', x=cx+hubW/2+gap;
+  plates.forEach(d=>{ bars+=rect(x,d); x+=pw+gap; });          // right, heaviest near hub
+  x=cx-hubW/2-gap-pw; plates.forEach(d=>{ bars+=rect(x,d); x-=pw+gap; });  // left mirror
+  const hub=`<rect x="${(cx-hubW/2).toFixed(1)}" y="${cy-19}" width="${hubW}" height="38" rx="6" class="lhub"/>`
+    +`<text x="${cx.toFixed(1)}" y="${(cy+4).toFixed(1)}" class="lhubt">${base}</text>`;
+  const note= rem>0.001? `<text x="${cx.toFixed(1)}" y="${H-2}" class="lprem">+${rem} more/side</text>`:'';
+  return `<svg width="${W.toFixed(0)}" height="${H}" viewBox="0 0 ${W.toFixed(0)} ${H}" class="wload" role="img" aria-label="plate loadout per side">${bars}${hub}${note}</svg>`;
+}
+
 // live mutable record for the current day (mutations persist via queueSave)
 function liveRec(idx){ const k=keyFor(state.wk,state.day); const dc=dayCache[k]||(dayCache[k]={}); return dc[idx]||(dc[idx]={done:false,sets:[]}); }
 
@@ -143,7 +166,8 @@ function makeWeightStepper(idx, ex, s, resType, prefill, onType){
     plate.innerHTML=`<div class="wrow">${resType==='bodyweight'?'<span class="wbw">BW +</span>':''}`
       +`<span class="wnum">${touched?esc(String(v)):(prefill!=null?esc(String(prefill)):'–')}</span>`
       +`<span class="wunit">lb</span></div>`
-      +(ps!=null&&v>0?`<div class="wside">${cfg.baseLabel||'bar'} ${cfg.base} + ${ps%1===0?ps:ps.toFixed(2)}/side</div>`:'');
+      +(ps!=null&&v>0?`<div class="wside">${cfg.baseLabel||'bar'} ${cfg.base} + ${ps%1===0?ps:ps.toFixed(2)}/side</div>`:'')
+      +(ps>0&&v>cfg.base?loadoutSVG(cfg.base, ps):'');
   }
   function commit(n){ if(n<0)n=0; setField(idx,ex,s,'w',String(Math.round(n*100)/100)); draw(); }
   plate.addEventListener('click',()=>{
@@ -758,7 +782,7 @@ function guideHTML(){ return `
   <button class="databtn" id="impBtn">↺  Restore from a backup file</button>
   <input type="file" id="impFile" accept="application/json,.json" style="display:none">
   <button class="dangerbtn" id="resetBtn">Reset all logged data</button>
-  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.<br><b style="color:var(--sub1)">build 20260620f</b></div>`;
+  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.<br><b style="color:var(--sub1)">build 20260620g</b></div>`;
 }
 function download(filename, text, mime){
   try{ const blob=new Blob([text],{type:mime||'text/plain'}); const url=URL.createObjectURL(blob);

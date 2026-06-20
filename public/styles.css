@@ -194,6 +194,12 @@ header{position:sticky;top:0;z-index:30;background:linear-gradient(180deg,var(--
 .wplate.touched .wnum{color:var(--text)}
 .wplate .wunit{font-size:10px;color:var(--ovl)}
 .wplate .wside{font-size:9px;color:var(--ovl);margin-top:1px;font-family:var(--body)}
+.wplate .wload{display:block;margin:5px auto 0;max-width:100%;height:auto}
+.wload .lpl{fill:var(--s1);stroke:var(--s2);stroke-width:1}
+.wload .lpt{fill:var(--sub1);font:600 8px var(--body);text-anchor:middle;dominant-baseline:middle}
+.wload .lhub{fill:var(--mauve)}
+.wload .lhubt{fill:#16161a;font:700 13px var(--disp);text-anchor:middle}
+.wload .lprem{fill:var(--ovl);font:8px var(--body);text-anchor:middle}
 .wplate input,.splate input{width:70px;background:transparent;border:none;outline:none;text-align:center;
   font-family:var(--disp);font-weight:700;font-size:22px;color:var(--text)}
 .splate input{width:48px;font-family:var(--body);font-size:16px;font-weight:600}
