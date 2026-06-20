@@ -75,13 +75,14 @@ function el(tag,cls,html){ const e=document.createElement(tag); if(cls) e.classN
 const BAR=45;
 const WRES={
   machine:   {label:'Machine',   step:5, chips:[2.5,5,10,25],          pair:false},
-  plates:    {label:'Barbell',   step:5, chips:[45,25,15,10,5,2.5,1.25],pair:true },
+  plates:    {label:'Barbell',   step:5, chips:[45,25,15,10,5,2.5,1.25],pair:true, base:45,  baseLabel:'bar' },
+  legpress:  {label:'Leg Press', step:5, chips:[45,25,10,5,2.5],       pair:true, base:118, baseLabel:'sled'},
   dumbbell:  {label:'Dumbbell',  step:5, chips:[2.5,5,10],             pair:false},
   bodyweight:{label:'Bodyweight',step:5, chips:[5,10,25,45],           pair:false},
 };
-const RES_ORDER=['machine','plates','dumbbell','bodyweight'];
+const RES_ORDER=['machine','plates','legpress','dumbbell','bodyweight'];
 const RES_OVERRIDE={
-  'Leg Press':'plates','Wide-Grip Pull-Up':'bodyweight','Neutral-Grip Pull-Up':'bodyweight',
+  'Leg Press':'legpress','Wide-Grip Pull-Up':'bodyweight','Neutral-Grip Pull-Up':'bodyweight',
   '45° Hyperextension':'bodyweight','Nordic Ham Curl':'bodyweight','Bench Dip':'bodyweight','Reverse Nordic':'bodyweight',
 };
 function resTypeFor(name){
@@ -131,18 +132,18 @@ function makeWeightStepper(idx, ex, s, resType, prefill, onType){
   const cfg=WRES[resType]||WRES.machine; let sub=false;
   const wrap=el('div','wstep');
   const get=()=>{ const sv=(liveRec(idx).sets||[])[s]||{}; return (sv.w!==undefined&&sv.w!==''&&sv.w!=null); };
-  const cur=()=>{ const sv=(liveRec(idx).sets||[])[s]||{}; return get()? Number(sv.w) : (prefill!=null?Number(prefill):0); };
+  const cur=()=>{ const sv=(liveRec(idx).sets||[])[s]||{}; return get()? Number(sv.w) : (prefill!=null?Number(prefill):(cfg.base!=null?cfg.base:0)); };
   const top=el('div','wtop');
   const minus=el('button','wbig','−'), plus=el('button','wbig','+');
   const plate=el('div','wplate');
   function draw(){
     const touched=get(), v=cur();
     plate.classList.toggle('touched',touched);
-    const ps=resType==='plates'? Math.max(0,(v-BAR)/2):null;
+    const ps=cfg.base!=null? Math.max(0,(v-cfg.base)/2):null;
     plate.innerHTML=`<div class="wrow">${resType==='bodyweight'?'<span class="wbw">BW +</span>':''}`
       +`<span class="wnum">${touched?esc(String(v)):(prefill!=null?esc(String(prefill)):'–')}</span>`
       +`<span class="wunit">lb</span></div>`
-      +(ps!=null&&v>0?`<div class="wside">bar 45 + ${ps%1===0?ps:ps.toFixed(2)}/side</div>`:'');
+      +(ps!=null&&v>0?`<div class="wside">${cfg.baseLabel||'bar'} ${cfg.base} + ${ps%1===0?ps:ps.toFixed(2)}/side</div>`:'');
   }
   function commit(n){ if(n<0)n=0; setField(idx,ex,s,'w',String(Math.round(n*100)/100)); draw(); }
   plate.addEventListener('click',()=>{
@@ -757,7 +758,7 @@ function guideHTML(){ return `
   <button class="databtn" id="impBtn">↺  Restore from a backup file</button>
   <input type="file" id="impFile" accept="application/json,.json" style="display:none">
   <button class="dangerbtn" id="resetBtn">Reset all logged data</button>
-  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.<br><b style="color:var(--sub1)">build 20260620e</b></div>`;
+  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.<br><b style="color:var(--sub1)">build 20260620f</b></div>`;
 }
 function download(filename, text, mime){
   try{ const blob=new Blob([text],{type:mime||'text/plain'}); const url=URL.createObjectURL(blob);
