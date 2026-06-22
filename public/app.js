@@ -22,7 +22,7 @@ if (typeof window.storage === "undefined") {
 
 // cold-start splash: hold briefly, then fade out and remove
 (function(){ const sp=document.getElementById('splash'); if(!sp) return;
-  setTimeout(()=>{ sp.classList.add('hide'); setTimeout(()=>sp.remove(),650); }, 1700);
+  setTimeout(()=>{ sp.classList.add('hide'); setTimeout(()=>sp.remove(),650); }, 4700);
 })();
 
 const DATA = window.PROGRAM;
