@@ -108,7 +108,7 @@ function plateBreak(perSide){ const out=[]; let rem=Math.round(perSide*100)/100;
 function loadoutSVG(base, perSide){
   const {plates,rem}=plateBreak(perSide);
   if(!plates.length) return '';
-  const hubW=46, pw=14, gap=3, H=62, cy=29;
+  const hubW=78, pw=14, gap=3, H=62, cy=29, hubH=22;
   const sideW=plates.length*(pw+gap), W=hubW+2*sideW+10, cx=W/2;
   const ph=d=> d>=45?50:d>=25?42:d>=10?32:d>=5?26:20;
   const rect=(x,d)=>{ const h=ph(d), y=cy-h/2, lx=(x+pw/2).toFixed(1);
@@ -117,7 +117,7 @@ function loadoutSVG(base, perSide){
   let bars='', x=cx+hubW/2+gap;
   plates.forEach(d=>{ bars+=rect(x,d); x+=pw+gap; });          // right, heaviest near hub
   x=cx-hubW/2-gap-pw; plates.forEach(d=>{ bars+=rect(x,d); x-=pw+gap; });  // left mirror
-  const hub=`<rect x="${(cx-hubW/2).toFixed(1)}" y="${cy-19}" width="${hubW}" height="38" rx="6" class="lhub"/>`
+  const hub=`<rect x="${(cx-hubW/2).toFixed(1)}" y="${(cy-hubH/2).toFixed(1)}" width="${hubW}" height="${hubH}" rx="4" class="lhub"/>`
     +`<text x="${cx.toFixed(1)}" y="${(cy+4).toFixed(1)}" class="lhubt">${base}</text>`;
   const note= rem>0.001? `<text x="${cx.toFixed(1)}" y="${H-2}" class="lprem">+${rem} more/side</text>`:'';
   return `<svg viewBox="0 0 ${W.toFixed(0)} ${H}" preserveAspectRatio="xMidYMid meet" class="wload" style="max-width:${W.toFixed(0)}px" role="img" aria-label="plate loadout per side">${bars}${hub}${note}</svg>`;
