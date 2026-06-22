@@ -1045,12 +1045,133 @@ function overviewBoard(data){
   return `<div class="ovboard">${html}</div>`;
 }
 
+// Render the "All movements" board to a shareable PNG (no deps; pure canvas).
+async function exportOverviewImage(){
+  const data=await overviewData();
+  const {byDay,m,order,dayLabel}=data;
+  const groups=order.filter(d=>byDay[d].length);
+  if(!groups.length){ alert('Log some sets first — there’s nothing to export yet.'); return; }
+  // make sure the webfonts are ready so the canvas isn't drawn in a fallback
+  try{ await Promise.all([
+    document.fonts.load('700 22px "Space Mono"'),
+    document.fonts.load('700 13px "Space Mono"'),
+    document.fonts.load('400 13px "JetBrains Mono"'),
+    document.fonts.load('600 15px "JetBrains Mono"'),
+    document.fonts.load('700 15px "JetBrains Mono"'),
+  ]); await document.fonts.ready; }catch(_){}
+
+  const DISP='"Space Mono",monospace', BODY='"JetBrains Mono",monospace';
+  const C={bg:'#16161a', text:'#e9e9eb', sub:'#a8a8ad', sub1:'#c8c8cc', ovl1:'#8a8a90', ovl:'#6f6f76',
+    green:'#a6e3a1', maroon:'#eba0ac', peach:'#fab387', amber:'#e3a857', line:'rgba(255,255,255,.07)'};
+  const dayColor={Monday:'#e3a857',Friday:'#89b4fa',Saturday:'#a6e3a1'};
+
+  const W=760, padX=36, scale=2;
+  const headerH=118, groupTitleH=44, rowH=50, footerH=56;
+  let rowsTotal=0; groups.forEach(d=>rowsTotal+=byDay[d].length);
+  const H=headerH + groups.length*groupTitleH + rowsTotal*rowH + footerH;
+
+  const cv=document.createElement('canvas');
+  cv.width=W*scale; cv.height=H*scale;
+  const ctx=cv.getContext('2d'); ctx.scale(scale,scale);
+  ctx.textBaseline='alphabetic';
+  const setLS=v=>{ try{ ctx.letterSpacing=v; }catch(_){ } };
+  const fit=(s,maxW)=>{ if(ctx.measureText(s).width<=maxW) return s; let t=s;
+    while(t.length>1 && ctx.measureText(t+'…').width>maxW) t=t.slice(0,-1); return t+'…'; };
+
+  // background
+  ctx.fillStyle=C.bg; ctx.fillRect(0,0,W,H);
+
+  // header
+  setLS('0.5px'); ctx.font='700 22px '+DISP; ctx.textAlign='left';
+  ctx.fillStyle=C.text; ctx.fillText('Landi',padX,48);
+  const lw=ctx.measureText('Landi').width;
+  ctx.fillStyle=C.ovl1; ctx.fillText('/lifts',padX+lw,48);
+  setLS('0px');
+  ctx.font='700 13px '+DISP; setLS('1px'); ctx.fillStyle=C.amber;
+  ctx.fillText('ALL MOVEMENTS',padX,74); setLS('0px');
+  ctx.font='12px '+BODY; ctx.fillStyle=C.ovl1;
+  ctx.fillText(`${m.name} · latest week vs the one before · top set`,padX,96);
+  // right side: user + date
+  ctx.textAlign='right';
+  const who=LL_USER?LL_USER.charAt(0).toUpperCase()+LL_USER.slice(1):'';
+  let dstr=''; try{ dstr=new Date().toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}); }catch(_){}
+  if(who){ ctx.font='700 14px '+DISP; ctx.fillStyle=C.sub1; ctx.fillText(who,W-padX,48); }
+  ctx.font='12px '+BODY; ctx.fillStyle=C.sub; ctx.fillText(dstr,W-padX,who?70:48);
+  ctx.textAlign='left';
+  // header divider
+  ctx.strokeStyle=C.line; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(padX,headerH-14); ctx.lineTo(W-padX,headerH-14); ctx.stroke();
+
+  let y=headerH;
+  groups.forEach(d=>{
+    const label=dayLabel[d], col=dayColor[label]||C.amber;
+    // group title with colored swatch
+    ctx.fillStyle=col; const sy=y+groupTitleH/2-6;
+    ctx.beginPath(); ctx.roundRect(padX,sy,10,12,3); ctx.fill();
+    ctx.font='700 13px '+DISP; setLS('1px'); ctx.fillStyle=col;
+    ctx.fillText(label.toUpperCase(),padX+20,y+groupTitleH/2+5); setLS('0px');
+    y+=groupTitleH;
+
+    byDay[d].forEach(r=>{
+      const top=y+rowH/2;
+      // name (top line, left)
+      ctx.font='600 15px '+BODY; ctx.fillStyle=C.text; ctx.textAlign='left';
+      ctx.fillText(fit(r.name, W-2*padX-130), padX, top-4);
+      // sets comparison (second line)
+      ctx.font='12.5px '+BODY;
+      let x=padX;
+      const prevS=r.prev?fmtSet(r.prev.top):null, curS=fmtSet(r.cur.top);
+      if(prevS){
+        ctx.fillStyle=C.sub1; ctx.fillText(prevS,x,top+16); x+=ctx.measureText(prevS).width;
+        ctx.fillStyle=C.ovl; ctx.fillText('  →  ',x,top+16); x+=ctx.measureText('  →  ').width;
+        ctx.fillStyle=C.sub1; ctx.fillText(curS,x,top+16);
+      } else { ctx.fillStyle=C.sub1; ctx.fillText(curS,x,top+16); }
+      // delta (right, vertically centered)
+      ctx.textAlign='right';
+      if(r.prev){
+        const diff=r.cur.v-r.prev.v, up=diff>0.0001, down=diff<-0.0001;
+        const dv=Math.abs(diff)>=1?Math.round(Math.abs(diff)):Math.abs(diff).toFixed(m.dec);
+        ctx.font='700 16px '+BODY;
+        ctx.fillStyle=up?C.green:down?C.maroon:C.ovl;
+        ctx.fillText(up?('↑'+dv):down?('↓'+dv):'→', W-padX, top+5);
+      } else {
+        ctx.font='700 11px '+BODY; ctx.fillStyle=C.peach; ctx.fillText('NEW',W-padX,top+4);
+      }
+      ctx.textAlign='left';
+      // row divider
+      ctx.strokeStyle=C.line; ctx.beginPath(); ctx.moveTo(padX,y+rowH); ctx.lineTo(W-padX,y+rowH); ctx.stroke();
+      y+=rowH;
+    });
+  });
+
+  // footer
+  ctx.textAlign='center'; ctx.font='11px '+BODY; ctx.fillStyle=C.ovl;
+  ctx.fillText('Landi / lifts · Anything worth doing is worth overdoing.', W/2, H-22);
+  ctx.textAlign='left';
+
+  const fname=`landi-lifts-progress-${(dstr||'export').replace(/[^0-9a-z]+/gi,'-').toLowerCase()}.png`;
+  await new Promise(res=>cv.toBlob(async blob=>{
+    if(!blob){ res(); return; }
+    try{
+      const file=new File([blob],fname,{type:'image/png'});
+      if(navigator.canShare && navigator.canShare({files:[file]})){
+        await navigator.share({files:[file], title:'Landi Lifts — progress'}); res(); return;
+      }
+    }catch(_){ /* share cancelled or unsupported -> fall through to download */ }
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a'); a.href=url; a.download=fname;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),5000); res();
+  },'image/png'));
+}
+
 async function renderProg(){
   if(!progState.sel.name) progState.sel={type:'all', name:'All movements'};
   const type=progState.sel.type, isVol = type==='group'||type==='full', noMetric = isVol||type==='coach';
   document.querySelector('.bcEyebrow').textContent = type==='coach'?'Coach Danny':(type==='all'?'All movements':(type==='full'?'Total volume':(type==='group'?'Muscle group':'Progression')));
   const metricSel=document.getElementById('metricSel');
   metricSel.style.display = noMetric?'none':'';
+  const expBtn=document.getElementById('expBtn'); if(expBtn) expBtn.style.display = type==='all'?'':'none';
   document.getElementById('exSel').innerHTML=`${progState.sel.name} <span class="car">▾</span>`;
   if(!noMetric) metricSel.innerHTML=`${PMETRICS[progState.metric].name} <span class="car">▾</span>`;
   const cur=document.getElementById('curVal'), pr=document.getElementById('prVal'), upd=document.getElementById('curUpd');
@@ -1192,6 +1313,15 @@ sheet.addEventListener('click',e=>{
   cb.addEventListener('click',e=>{ const row=e.target.closest('.ovrow'); if(row) toggle(row); });
   cb.addEventListener('keydown',e=>{ if(e.key!=='Enter'&&e.key!==' ') return;
     const row=e.target.closest('.ovrow'); if(row){ e.preventDefault(); toggle(row); } });
+})();
+
+// export the All-movements board as a shareable image
+(function(){ const b=document.getElementById('expBtn'); if(!b) return;
+  b.addEventListener('click',async()=>{ if(b.disabled) return;
+    const orig=b.textContent; b.disabled=true; b.textContent='Rendering…';
+    try{ await exportOverviewImage(); }
+    catch(err){ alert('Sorry — could not create the image.'); }
+    finally{ b.disabled=false; b.textContent=orig; } });
 })();
 
 document.getElementById('seg').onclick=e=>{ const b=e.target.closest('.segbtn'); if(!b) return;

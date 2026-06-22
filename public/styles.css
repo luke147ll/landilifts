@@ -324,6 +324,10 @@ header{position:sticky;top:0;z-index:30;background:linear-gradient(180deg,var(--
   border:1px solid #15414c;color:#eafdff;font-family:var(--disp);font-weight:700;font-size:16px;
   display:flex;align-items:center;justify-content:space-between;gap:8px;transition:.15s}
 .exsel .car{color:#7fbecb;font-size:12px}
+.expbtn{width:100%;margin-top:12px;padding:11px 14px;border-radius:12px;background:rgba(255,255,255,.04);
+  border:1px solid var(--s1);color:var(--sub1);font-family:var(--body);font-weight:600;font-size:13px;letter-spacing:.3px;transition:.15s}
+.expbtn:active{background:rgba(255,255,255,.09);color:var(--text)}
+.expbtn[disabled]{opacity:.55}
 .exsel:active{background:rgba(0,0,0,.34)}
 .bcBig.pr{color:var(--peach)}
 .bcStats{display:flex;gap:40px;margin-top:12px}
