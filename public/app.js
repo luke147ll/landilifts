@@ -832,7 +832,7 @@ function restoreData(text){
   if(!confirm('Restore '+keys.length+' saved day(s)? This replaces your current logs.')) return;
   (async()=>{ for(const k of keys){ try{ await window.storage.set(k, JSON.stringify(data[k]), false);}catch(_){} }
     dayCache={}; finCache={}; finWkCache={}; wedCache={}; prFiredSession.clear(); scheduleCloudPush(); scrim.classList.remove('show'); await renderAll(); await computePRBase();
-    try{ if(document.getElementById('bodyView').style.display!=='none'){ await renderProg(); await renderShelf(); } }catch(_){}
+    try{ if(document.getElementById('bodyView').style.display!=='none'){ await renderProg(); await renderShelf(); await renderRecovery(); } }catch(_){}
     alert('Backup restored.'); })();
 }
 sheet.addEventListener('click',async(e)=>{
@@ -869,6 +869,60 @@ DATA.weeks.forEach(w=>{ ['mon','fri','sat'].forEach(dk=>{ w.days[dk].forEach((ex
   (EX_INDEX[ex.ex]||(EX_INDEX[ex.ex]=[])).push({wk:w.n, day:dk, exIdx:i});
   const g=EX_GROUP[ex.ex]; if(g&&g!=='Other'){ (GROUP_INDEX[g]||(GROUP_INDEX[g]=[])).push({wk:w.n, day:dk, exIdx:i}); }
 });});});
+
+/* ===================== muscle recovery tracker ===================== */
+// Ordered list of tracked muscles (front + back).
+const MUSCLES=['Chest','Shoulders','Back','Triceps','Biceps','Abs','Quads','Hamstrings','Glutes','Calves'];
+// Rough time-to-recover (hours) — bigger muscles take longer.
+const REC_HOURS={Chest:72,Back:72,Quads:72,Hamstrings:72,Glutes:60,Shoulders:48,Triceps:48,Biceps:48,Abs:36,Calves:48};
+// Per-exercise muscle involvement (1 = prime mover, 0.5 = strong assist).
+const EX_MUSCLE={
+  '45° Incline Barbell Press':{Chest:1,Triceps:.5,Shoulders:.5},
+  '45° Incline DB Press':{Chest:1,Triceps:.5,Shoulders:.5},
+  'Barbell Bench Press':{Chest:1,Triceps:.5,Shoulders:.5},
+  'Bottom-Half DB Flye':{Chest:1},
+  'Bottom-Half Seated Cable Flye':{Chest:1},
+  'Machine Chest Press':{Chest:1,Triceps:.5,Shoulders:.5},
+  '1-Arm 45° Cable Rear Delt Flye':{Shoulders:1},
+  'High-Cable Lateral Raise':{Shoulders:1},
+  'Machine Shoulder Press':{Shoulders:1,Triceps:.5},
+  'Seated DB Shoulder Press':{Shoulders:1,Triceps:.5},
+  'Chest-Supported Machine Row':{Back:1,Biceps:.5},
+  'Chest-Supported T-Bar Row':{Back:1,Biceps:.5},
+  'Dual-Handle Lat Pulldown':{Back:1,Biceps:.5},
+  'Lean-Back Lat Pulldown':{Back:1,Biceps:.5},
+  'Neutral-Grip Lat Pulldown':{Back:1,Biceps:.5},
+  'Wide-Grip Pull-Up':{Back:1,Biceps:.5},
+  'Bayesian Cable Curl':{Biceps:1},
+  'Cable Rope Hammer Curl':{Biceps:1},
+  'EZ-Bar Cable Curl':{Biceps:1},
+  'Cable Triceps Kickback':{Triceps:1},
+  'EZ-Bar Skull Crusher':{Triceps:1},
+  'Overhead Cable Triceps Extension (Bar)':{Triceps:1},
+  'Cable Crunch':{Abs:1},
+  'Machine Crunch':{Abs:1},
+  '45° Hyperextension':{Hamstrings:.75,Glutes:.75},
+  'Barbell RDL':{Hamstrings:1,Glutes:.75},
+  'DB Bulgarian Split Squat':{Quads:1,Glutes:.75},
+  'Hack Squat':{Quads:1,Glutes:.5},
+  'Leg Extension':{Quads:1},
+  'Leg Press':{Quads:1,Glutes:.75},
+  'Machine Hip Abduction':{Glutes:1},
+  'Machine Hip Adduction':{Quads:.5,Glutes:.5},
+  'Seated Leg Curl':{Hamstrings:1},
+  'Smith Machine Squat':{Quads:1,Glutes:.75},
+  'Smith Machine Static Lunge w/ Elevated Front Foot':{Quads:1,Glutes:.75},
+  'Standing Calf Raise':{Calves:1},
+  'Walking Lunge':{Quads:1,Glutes:.75},
+};
+// Coarse Wednesday tags -> muscles (each tagged group counts as a moderate hit).
+const WEDGROUP_MUSCLE={
+  Chest:{Chest:1}, Back:{Back:1,Biceps:.5}, Shoulders:{Shoulders:1},
+  Arms:{Biceps:1,Triceps:1}, Legs:{Quads:1,Hamstrings:1,Glutes:.75,Calves:.5},
+  Glutes:{Glutes:1}, Core:{Abs:1}, Cardio:{},
+};
+const REC_FULL=6;      // effective sets that = a fully fatiguing session
+const REC_WED_SETS=4;  // assumed effective sets per tagged Wednesday group
 
 function parseSets(arr){ return (arr||[]).map(s=>{ const w=parseFloat(s&&s.w), r=parseFloat(s&&s.r); return {w:isNaN(w)?0:w, r:isNaN(r)?0:r}; }); }
 function volOf(sets){ let v=0,a=false; for(const s of sets){ if(s.w>0&&s.r>0){ v+=s.w*s.r; a=true; } } return a?v:0; }
@@ -1165,6 +1219,96 @@ async function exportOverviewImage(){
   },'image/png'));
 }
 
+// ---- muscle recovery: gather finished sessions and decay fatigue over real time ----
+async function recoveryData(){
+  const now=Date.now(); const sessions=[];
+  for(let wk=1;wk<=12;wk++){
+    for(const day of ['mon','fri','sat']){
+      const fin=await loadFin(wk,day); if(!fin||!fin.at) continue;
+      const at=Date.parse(fin.at); if(isNaN(at)) continue;
+      const exs=(DATA.weeks[wk-1]&&DATA.weeks[wk-1].days[day])||[]; const log=await loadDay(wk,day);
+      const load={};
+      exs.forEach((ex,i)=>{ const map=EX_MUSCLE[ex.ex]; if(!map) return; const rec=log[i]; let eff=0;
+        if(rec&&rec.sets) rec.sets.forEach(s=>{ const w=parseFloat(s.w),r=parseFloat(s.r); if(w>0&&r>0) eff++; });
+        if(eff===0){ if(rec&&rec.done) eff=ex.sets||3; else return; }
+        for(const m in map) load[m]=(load[m]||0)+eff*map[m]; });
+      if(Object.keys(load).length) sessions.push({at, load});
+    }
+    const finW=await loadFin(wk,'wed');
+    if(finW&&finW.at){ const at=Date.parse(finW.at);
+      if(!isNaN(at)){ const wed=await loadWed(wk); const load={};
+        (wed.groups||[]).forEach(g=>{ const map=WEDGROUP_MUSCLE[g]; if(!map) return;
+          for(const m in map) load[m]=(load[m]||0)+REC_WED_SETS*map[m]; });
+        if(Object.keys(load).length) sessions.push({at, load}); } }
+  }
+  const fatigueAt=(m,t)=>{ let f=0;
+    for(const s of sessions){ const L=s.load[m]; if(!L) continue;
+      const eH=(t-s.at)/3.6e6; if(eH<0) continue;
+      const decay=Math.max(0,1-eH/REC_HOURS[m]); if(decay<=0) continue;
+      f+=Math.min(1,L/REC_FULL)*decay; }
+    return Math.min(1,f); };
+  const maxH=Math.max.apply(null,Object.values(REC_HOURS));
+  const byMuscle={};
+  for(const m of MUSCLES){
+    const trained=sessions.some(s=>s.load[m]>0);
+    const fatigue=fatigueAt(m,now), readiness=1-fatigue;
+    const status=!trained?'none':readiness>=0.66?'fresh':readiness>=0.33?'recovering':'needs';
+    let hoursToFresh=0;
+    if(trained&&fatigue>0.34){ for(let h=1;h<=maxH+1;h++){ if(fatigueAt(m,now+h*3.6e6)<=0.34){ hoursToFresh=h; break; } } }
+    let lastAt=0; sessions.forEach(s=>{ if(s.load[m]>0&&s.at>lastAt) lastAt=s.at; });
+    byMuscle[m]={trained, fatigue, readiness, status, hoursToFresh, lastAgoH:lastAt?(now-lastAt)/3.6e6:null};
+  }
+  return {byMuscle, anySession:sessions.length>0};
+}
+function recColor(st){ return st==='fresh'?'#a6e3a1':st==='recovering'?'#f9c04a':st==='needs'?'#f38ba8':'#4b4b54'; }
+function fmtHrs(h){ if(h>=24){ const d=h/24; return (d>=2?Math.round(d):d.toFixed(1))+'d left'; } return Math.max(1,Math.round(h))+'h left'; }
+// Stylized front/back figure; each muscle filled by its readiness color.
+function bodyDiagramSVG(colorFor){
+  const BASE='#34343b', ST='stroke="#1c1c1f" stroke-width="1"';
+  const R=(x,y,w,h,r,f)=>`<rect x="${x.toFixed(1)}" y="${y}" width="${w}" height="${h}" rx="${r}" fill="${f}" ${ST}/>`;
+  const E=(x,y,rx,ry,f)=>`<ellipse cx="${x.toFixed(1)}" cy="${y}" rx="${rx}" ry="${ry}" fill="${f}" ${ST}/>`;
+  const C=(x,y,r,f)=>`<circle cx="${x}" cy="${y}" r="${r}" fill="${f}" ${ST}/>`;
+  const base=cx=>C(cx,20,11,BASE)+R(cx-5,28,10,9,4,BASE)+R(cx-22,36,44,66,14,BASE)+R(cx-20,98,40,22,9,BASE)
+    +R(cx-35,40,13,40,6,BASE)+R(cx+22,40,13,40,6,BASE)+R(cx-38,78,11,36,5,BASE)+R(cx+27,78,11,36,5,BASE)
+    +R(cx-20,116,18,56,9,BASE)+R(cx+2,116,18,56,9,BASE)+R(cx-18,170,15,52,7,BASE)+R(cx+3,170,15,52,7,BASE);
+  const front=cx=>{const c=colorFor; return E(cx-26,47,9,8,c('Shoulders'))+E(cx+26,47,9,8,c('Shoulders'))
+    +R(cx-19,46,17,17,5,c('Chest'))+R(cx+2,46,17,17,5,c('Chest'))
+    +E(cx-29,66,6,12,c('Biceps'))+E(cx+29,66,6,12,c('Biceps'))
+    +R(cx-9,65,18,33,5,c('Abs'))+R(cx-19,118,16,48,8,c('Quads'))+R(cx+3,118,16,48,8,c('Quads'));};
+  const back=cx=>{const c=colorFor; return E(cx-26,47,9,8,c('Shoulders'))+E(cx+26,47,9,8,c('Shoulders'))
+    +R(cx-20,44,40,46,10,c('Back'))+E(cx-29,66,6,12,c('Triceps'))+E(cx+29,66,6,12,c('Triceps'))
+    +R(cx-19,99,18,20,8,c('Glutes'))+R(cx+1,99,18,20,8,c('Glutes'))
+    +R(cx-19,120,16,46,8,c('Hamstrings'))+R(cx+3,120,16,46,8,c('Hamstrings'))
+    +R(cx-17,170,15,46,7,c('Calves'))+R(cx+2,170,15,46,7,c('Calves'));};
+  const fcx=84, bcx=236;
+  return `<svg viewBox="0 0 320 250" class="bodysvg" role="img" aria-label="Muscle readiness, front and back view">`
+    +base(fcx)+front(fcx)+base(bcx)+back(bcx)
+    +`<text x="${fcx}" y="244" class="bdlab">FRONT</text><text x="${bcx}" y="244" class="bdlab">BACK</text></svg>`;
+}
+async function renderRecovery(){
+  const card=document.getElementById('recCard'); if(!card) return;
+  const data=await recoveryData();
+  if(!data.anySession){
+    card.innerHTML=`<div class="rechead"><div class="recttl">Muscle Readiness</div></div>`
+      +`<div class="recempty">No finished workouts yet.<br>Log your sets and tap <b>Finish workout</b> so we can track how recently each muscle was trained.</div>`;
+    return; }
+  const c=m=>recColor(data.byMuscle[m].status);
+  const order=['needs','recovering','fresh','none'];
+  const labelOf={needs:'Needs recovery',recovering:'Recovering',fresh:'Fresh',none:'Not trained yet'};
+  const groups={needs:[],recovering:[],fresh:[],none:[]};
+  MUSCLES.forEach(m=>groups[data.byMuscle[m].status].push(m));
+  let secs='';
+  order.forEach(st=>{ const ms=groups[st]; if(!ms.length) return;
+    const chips=ms.map(m=>{ const d=data.byMuscle[m];
+      const sub=(st==='recovering'||st==='needs')&&d.hoursToFresh>0?`<span class="recsub">${fmtHrs(d.hoursToFresh)}</span>`:'';
+      return `<span class="recchip ${st}">${esc(m)}${sub}</span>`; }).join('');
+    secs+=`<div class="recsec"><div class="recseclbl ${st}"><span class="recdot"></span>${labelOf[st]}</div><div class="recchips">${chips}</div></div>`; });
+  card.innerHTML=`<div class="rechead"><div class="recttl">Muscle Readiness</div><div class="recsubh">Based on your finished workouts &amp; how long ago you trained each area.</div></div>`
+    +bodyDiagramSVG(c)
+    +`<div class="reclegend"><span class="reclg"><i style="background:#a6e3a1"></i>Fresh</span><span class="reclg"><i style="background:#f9c04a"></i>Recovering</span><span class="reclg"><i style="background:#f38ba8"></i>Needs recovery</span><span class="reclg"><i style="background:#4b4b54"></i>No data</span></div>`
+    +secs;
+}
+
 async function renderProg(){
   if(!progState.sel.name) progState.sel={type:'all', name:'All movements'};
   const type=progState.sel.type, isVol = type==='group'||type==='full', noMetric = isVol||type==='coach';
@@ -1332,7 +1476,7 @@ document.getElementById('seg').onclick=e=>{ const b=e.target.closest('.segbtn');
   document.getElementById('bodyView').style.display=train?'none':'';
   document.getElementById('fab').style.display=train?'':'none';
   document.getElementById('timer').classList.remove('show');
-  if(!train){ renderProg(); renderShelf(); }
+  if(!train){ renderProg(); renderShelf(); renderRecovery(); }
   window.scrollTo(0,0);
 };
 
@@ -1398,7 +1542,7 @@ async function bootSync(){
   else await cloudPull();             // get latest from the cloud
   await renderAll();
   await computePRBase();
-  try{ if(document.getElementById('bodyView').style.display!=='none'){ await renderProg(); await renderShelf(); } }catch(_){}
+  try{ if(document.getElementById('bodyView').style.display!=='none'){ await renderProg(); await renderShelf(); await renderRecovery(); } }catch(_){}
 }
 async function pickUser(u){
   if(!LL_USERS.includes(u)) return;
