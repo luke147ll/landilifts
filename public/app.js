@@ -983,6 +983,17 @@ function topSet(sets){
   return b||any;
 }
 function fmtSet(t){ return t? `${t.w}×${t.r||'–'}` : '–'; }
+// one week's set-by-set breakdown column for the overview drill-down
+function ovColumn(pt){
+  if(!pt) return '<div class="ovdcol ovdempty"><div class="ovdh">—</div><div class="ovdnone">no prior week</div></div>';
+  let vol=0; const rows=(pt.sets||[]).map((s,i)=>{
+    const has=s.w>0&&s.r>0; if(has) vol+=s.w*s.r;
+    return `<div class="ovdset"><span class="ovdn">${i+1}</span>`
+      +`<span class="ovdwr">${s.w>0?s.w:'–'} <span class="ovx">×</span> ${s.r>0?s.r:'–'}</span>`
+      +`<span class="ovdv">${has?(s.w*s.r).toLocaleString():'–'}</span></div>`;
+  }).join('') || '<div class="ovdnone">no sets logged</div>';
+  return `<div class="ovdcol"><div class="ovdh">Wk ${pt.wk}</div>${rows}<div class="ovdtot">vol <b>${Math.round(vol).toLocaleString()}</b></div></div>`;
+}
 // Every movement's latest logged week vs the one before — the at-a-glance progress board.
 async function overviewData(){
   const m=PMETRICS[progState.metric];
@@ -997,7 +1008,7 @@ async function overviewData(){
       const pts=[];
       for(const o of occ){ const log=await loadDay(o.wk,o.day); const rec=log[o.exIdx];
         if(!rec||!rec.sets) continue; const sets=parseSets(rec.sets); const v=m.calc(sets);
-        if(v==null||isNaN(v)) continue; pts.push({wk:o.wk, v, top:topSet(sets)}); }
+        if(v==null||isNaN(v)) continue; pts.push({wk:o.wk, v, top:topSet(sets), sets}); }
       if(!pts.length) continue;
       byDay[day].push({name, cur:pts[pts.length-1], prev:pts.length>1?pts[pts.length-2]:null});
     }
@@ -1026,7 +1037,8 @@ function overviewBoard(data){
         const dv=Math.abs(diff)>=1?Math.round(Math.abs(diff)):Math.abs(diff).toFixed(m.dec);
         delta=`<div class="ovd ${cls}">${(up||down)?ar+dv:'→'}</div>`;
       } else { delta=`<div class="ovd new">new</div>`; }
-      html+=`<div class="ovrow"><div class="ovname">${esc(r.name)}<span class="ovsets">${sets}</span></div><div class="ovbar"><div class="ovc"></div>${bar}</div>${delta}</div>`;
+      html+=`<div class="ovrow" role="button" tabindex="0" aria-expanded="false"><div class="ovname">${esc(r.name)}<span class="ovsets">${sets}</span></div><div class="ovbar"><div class="ovc"></div>${bar}</div>${delta}<div class="ovcar">▾</div></div>`
+        +`<div class="ovdet" hidden>${ovColumn(r.prev)}${ovColumn(r.cur)}</div>`;
     });
   });
   if(!any) return '<div class="empty">No movements logged yet.<br>Log sets in <b>Train</b> to see your week-over-week overview.</div>';
@@ -1169,6 +1181,18 @@ sheet.addEventListener('click',e=>{
   const g=e.target.closest('[data-group]'); if(g){ progState.sel={type:'group',name:g.dataset.group}; scrim.classList.remove('show'); renderProg(); return; }
   const ex=e.target.closest('[data-ex]'); if(ex){ progState.sel={type:'ex',name:ex.dataset.ex}; scrim.classList.remove('show'); renderProg(); return; }
 });
+
+// overview drill-down: tap a movement row to reveal its set-by-set breakdown
+(function(){ const cb=document.getElementById('chartbox'); if(!cb) return;
+  const toggle=row=>{ const det=row.nextElementSibling;
+    if(!det||!det.classList.contains('ovdet')) return;
+    const open=det.hasAttribute('hidden');
+    if(open){ det.removeAttribute('hidden'); row.classList.add('ovopen'); row.setAttribute('aria-expanded','true'); }
+    else{ det.setAttribute('hidden',''); row.classList.remove('ovopen'); row.setAttribute('aria-expanded','false'); } };
+  cb.addEventListener('click',e=>{ const row=e.target.closest('.ovrow'); if(row) toggle(row); });
+  cb.addEventListener('keydown',e=>{ if(e.key!=='Enter'&&e.key!==' ') return;
+    const row=e.target.closest('.ovrow'); if(row){ e.preventDefault(); toggle(row); } });
+})();
 
 document.getElementById('seg').onclick=e=>{ const b=e.target.closest('.segbtn'); if(!b) return;
   const train=b.dataset.v==='train';
