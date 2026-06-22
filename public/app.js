@@ -937,20 +937,48 @@ async function exPoints(){
   return pts;
 }
 async function groupPoints(){
-  const occ=GROUP_INDEX[progState.sel.name]||[]; const byWeek={};
-  for(const o of occ){ const log=await loadDay(o.wk,o.day); const rec=log[o.exIdx];
+  const occ=GROUP_INDEX[progState.sel.name]||[];
+  const perWeek={}, sched={};   // wk -> {name:vol}  ;  wk -> Set(scheduled names)
+  for(const o of occ){
+    const name=DATA.weeks[o.wk-1].days[o.day][o.exIdx].ex;
+    (sched[o.wk]||(sched[o.wk]=new Set())).add(name);
+    const log=await loadDay(o.wk,o.day); const rec=log[o.exIdx];
     if(!rec||!rec.sets) continue; const v=volOf(parseSets(rec.sets));
-    if(v>0) byWeek[o.wk]=(byWeek[o.wk]||0)+v; }
-  return Object.keys(byWeek).map(Number).sort((a,b)=>a-b).map(wk=>({label:'Wk '+wk, wk, v:byWeek[wk]}));
+    if(v>0)(perWeek[o.wk]||(perWeek[o.wk]={}))[name]=((perWeek[o.wk]||{})[name]||0)+v;
+  }
+  return likeForLikePoints(perWeek, sched);
 }
 // whole-body weekly volume = w*r summed across every logged movement (all 3 program days)
 async function fullPoints(){
-  const byWeek={};
+  const perWeek={}, sched={};
   for(let wk=1;wk<=12;wk++){ for(const day of ['mon','fri','sat']){
-    const log=await loadDay(wk,day); const exs=DATA.weeks[wk-1].days[day];
-    exs.forEach((ex,i)=>{ const rec=log[i]; if(!rec||!rec.sets) return; const v=volOf(parseSets(rec.sets)); if(v>0) byWeek[wk]=(byWeek[wk]||0)+v; });
+    const exs=DATA.weeks[wk-1].days[day]; const log=await loadDay(wk,day);
+    exs.forEach((ex,i)=>{ (sched[wk]||(sched[wk]=new Set())).add(ex.ex);
+      const rec=log[i]; if(!rec||!rec.sets) return; const v=volOf(parseSets(rec.sets));
+      if(v>0)(perWeek[wk]||(perWeek[wk]={}))[ex.ex]=((perWeek[wk]||{})[ex.ex]||0)+v; });
   }}
-  return Object.keys(byWeek).map(Number).sort((a,b)=>a-b).map(wk=>({label:'Wk '+wk, wk, v:byWeek[wk]}));
+  return likeForLikePoints(perWeek, sched);
+}
+// Build weekly points. If the latest week is still in progress (some scheduled
+// lifts not logged yet), restrict every week to the lifts already done this week
+// so upcoming lifts don't drag the current point down. Reverts to full totals
+// once the week is complete. Sets `pts.matched` when the restriction is active.
+function likeForLikePoints(perWeek, sched){
+  const wks=Object.keys(perWeek).map(Number).sort((a,b)=>a-b);
+  if(!wks.length){ const e=[]; e.matched=false; return e; }
+  const curWk=wks[wks.length-1];
+  const logged=new Set(Object.keys(perWeek[curWk]));
+  const scheduled=sched[curWk]||new Set();
+  const inProgress=logged.size>0 && [...scheduled].some(n=>!logged.has(n));
+  let pts;
+  if(inProgress){
+    pts=wks.map(wk=>{ let v=0; for(const n of logged){ const w=perWeek[wk]; if(w&&w[n]) v+=w[n]; } return {label:'Wk '+wk, wk, v}; })
+           .filter(p=>p.v>0);
+  } else {
+    pts=wks.map(wk=>{ let v=0; const w=perWeek[wk]; for(const n in w) v+=w[n]; return {label:'Wk '+wk, wk, v}; });
+  }
+  pts.matched=inProgress;
+  return pts;
 }
 // Coach Danny (Wednesdays): how often each muscle group was tagged across weeks
 async function coachData(){
@@ -1350,7 +1378,7 @@ async function renderProg(){
       const first=pts[0].v, last=pts[pts.length-1].v;
       const pct = first>0? (last-first)/first*100 : 0; const sign=pct>0?'+':'';
       cur.innerHTML=`<span style="color:${pct>=0?'var(--green)':'var(--maroon)'}">${sign}${pct.toFixed(0)}%</span>`;
-      upd.textContent=`Weekly volume · Wk ${pts[0].wk}–${pts[pts.length-1].wk}`;
+      upd.textContent=`Weekly volume · Wk ${pts[0].wk}–${pts[pts.length-1].wk}`+(pts.matched?' · matched to this week’s lifts':'');
       pr.innerHTML=`${Math.round(last).toLocaleString()}<span class="bcUnit"> lb</span>`;
     } else { cur.textContent='–'; pr.textContent='–'; upd.textContent=type==='full'?'Log sets in Train to see your volume trend.':'Log sets in Train to see this group’s trend.'; }
     document.getElementById('chartbox').innerHTML=chartSVG(pts, prIdx);
