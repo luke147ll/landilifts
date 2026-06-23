@@ -859,10 +859,10 @@ DATA.weeks.forEach(w=>{ ['mon','fri','sat'].forEach(dk=>{ w.days[dk].forEach((ex
 
 /* ===================== muscle recovery tracker ===================== */
 // Ordered list of tracked muscles (front + back).
-const MUSCLES=['Chest','Shoulders','Back','Triceps','Biceps','Abs','Quads','Hamstrings','Glutes','Calves'];
+const MUSCLES=['Chest','Shoulders','Rear Delts','Back','Lower Back','Triceps','Biceps','Forearms','Abs','Quads','Adductors','Hamstrings','Glutes','Calves'];
 // Rough time-to-recover (hours) — bigger muscles take longer.
-const REC_HOURS={Chest:72,Back:72,Quads:72,Hamstrings:72,Glutes:60,Shoulders:48,Triceps:48,Biceps:48,Abs:36,Calves:48};
-// Per-exercise muscle involvement (1 = prime mover, 0.5 = strong assist).
+const REC_HOURS={Chest:72,Back:72,'Lower Back':72,Quads:72,Hamstrings:72,Glutes:60,Adductors:60,Shoulders:48,'Rear Delts':48,Triceps:48,Biceps:48,Calves:48,Forearms:36,Abs:36};
+// Per-exercise muscle involvement (1 = prime mover, 0.5 = strong assist, 0.25 = light).
 const EX_MUSCLE={
   '45° Incline Barbell Press':{Chest:1,Triceps:.5,Shoulders:.5},
   '45° Incline DB Press':{Chest:1,Triceps:.5,Shoulders:.5},
@@ -870,37 +870,37 @@ const EX_MUSCLE={
   'Bottom-Half DB Flye':{Chest:1},
   'Bottom-Half Seated Cable Flye':{Chest:1},
   'Machine Chest Press':{Chest:1,Triceps:.5,Shoulders:.5},
-  '1-Arm 45° Cable Rear Delt Flye':{Shoulders:1},
+  '1-Arm 45° Cable Rear Delt Flye':{'Rear Delts':1},
   'High-Cable Lateral Raise':{Shoulders:1},
   'Machine Shoulder Press':{Shoulders:1,Triceps:.5},
   'Seated DB Shoulder Press':{Shoulders:1,Triceps:.5},
-  'Chest-Supported Machine Row':{Back:1,Biceps:.5},
-  'Chest-Supported T-Bar Row':{Back:1,Biceps:.5},
-  'Dual-Handle Lat Pulldown':{Back:1,Biceps:.5},
-  'Lean-Back Lat Pulldown':{Back:1,Biceps:.5},
-  'Neutral-Grip Lat Pulldown':{Back:1,Biceps:.5},
-  'Wide-Grip Pull-Up':{Back:1,Biceps:.5},
+  'Chest-Supported Machine Row':{Back:1,'Rear Delts':.5,Biceps:.5,Forearms:.25},
+  'Chest-Supported T-Bar Row':{Back:1,'Rear Delts':.5,Biceps:.5,Forearms:.25},
+  'Dual-Handle Lat Pulldown':{Back:1,'Rear Delts':.25,Biceps:.5,Forearms:.25},
+  'Lean-Back Lat Pulldown':{Back:1,'Rear Delts':.25,Biceps:.5,Forearms:.25},
+  'Neutral-Grip Lat Pulldown':{Back:1,'Rear Delts':.25,Biceps:.5,Forearms:.25},
+  'Wide-Grip Pull-Up':{Back:1,'Rear Delts':.25,Biceps:.5,Forearms:.5},
   'Bayesian Cable Curl':{Biceps:1},
-  'Cable Rope Hammer Curl':{Biceps:1},
-  'EZ-Bar Cable Curl':{Biceps:1},
+  'Cable Rope Hammer Curl':{Biceps:1,Forearms:.5},
+  'EZ-Bar Cable Curl':{Biceps:1,Forearms:.25},
   'Cable Triceps Kickback':{Triceps:1},
   'EZ-Bar Skull Crusher':{Triceps:1},
   'Overhead Cable Triceps Extension (Bar)':{Triceps:1},
   'Cable Crunch':{Abs:1},
   'Machine Crunch':{Abs:1},
-  '45° Hyperextension':{Hamstrings:.75,Glutes:.75},
-  'Barbell RDL':{Hamstrings:1,Glutes:.75},
-  'DB Bulgarian Split Squat':{Quads:1,Glutes:.75},
-  'Hack Squat':{Quads:1,Glutes:.5},
+  '45° Hyperextension':{'Lower Back':1,Hamstrings:.5,Glutes:.5},
+  'Barbell RDL':{Hamstrings:1,Glutes:.75,'Lower Back':.5},
+  'DB Bulgarian Split Squat':{Quads:1,Glutes:.75,Adductors:.25},
+  'Hack Squat':{Quads:1,Glutes:.5,Adductors:.25},
   'Leg Extension':{Quads:1},
-  'Leg Press':{Quads:1,Glutes:.75},
+  'Leg Press':{Quads:1,Glutes:.75,Adductors:.25},
   'Machine Hip Abduction':{Glutes:1},
-  'Machine Hip Adduction':{Quads:.5,Glutes:.5},
+  'Machine Hip Adduction':{Adductors:1},
   'Seated Leg Curl':{Hamstrings:1},
-  'Smith Machine Squat':{Quads:1,Glutes:.75},
-  'Smith Machine Static Lunge w/ Elevated Front Foot':{Quads:1,Glutes:.75},
+  'Smith Machine Squat':{Quads:1,Glutes:.75,Adductors:.25,'Lower Back':.25},
+  'Smith Machine Static Lunge w/ Elevated Front Foot':{Quads:1,Glutes:.75,Adductors:.25},
   'Standing Calf Raise':{Calves:1},
-  'Walking Lunge':{Quads:1,Glutes:.75},
+  'Walking Lunge':{Quads:1,Glutes:.75,Adductors:.25},
 };
 // Coarse Wednesday tags -> muscles (each tagged group counts as a moderate hit).
 const WEDGROUP_MUSCLE={
@@ -1289,9 +1289,15 @@ function bodyDiagramSVG(colorFor){
   const front=cx=>{const c=colorFor; return E(cx-26,47,9,8,c('Shoulders'))+E(cx+26,47,9,8,c('Shoulders'))
     +R(cx-19,46,17,17,5,c('Chest'))+R(cx+2,46,17,17,5,c('Chest'))
     +E(cx-29,66,6,12,c('Biceps'))+E(cx+29,66,6,12,c('Biceps'))
-    +R(cx-9,65,18,33,5,c('Abs'))+R(cx-19,118,16,48,8,c('Quads'))+R(cx+3,118,16,48,8,c('Quads'));};
-  const back=cx=>{const c=colorFor; return E(cx-26,47,9,8,c('Shoulders'))+E(cx+26,47,9,8,c('Shoulders'))
-    +R(cx-20,44,40,46,10,c('Back'))+E(cx-29,66,6,12,c('Triceps'))+E(cx+29,66,6,12,c('Triceps'))
+    +R(cx-37,80,9,32,4,c('Forearms'))+R(cx+28,80,9,32,4,c('Forearms'))
+    +R(cx-9,65,18,33,5,c('Abs'))
+    +R(cx-19,118,11,48,7,c('Quads'))+R(cx+8,118,11,48,7,c('Quads'))
+    +R(cx-7,120,5,42,3,c('Adductors'))+R(cx+2,120,5,42,3,c('Adductors'));};
+  const back=cx=>{const c=colorFor; return R(cx-20,44,40,40,10,c('Back'))
+    +R(cx-13,85,26,13,4,c('Lower Back'))
+    +E(cx-26,47,9,8,c('Rear Delts'))+E(cx+26,47,9,8,c('Rear Delts'))
+    +E(cx-29,66,6,12,c('Triceps'))+E(cx+29,66,6,12,c('Triceps'))
+    +R(cx-37,80,9,32,4,c('Forearms'))+R(cx+28,80,9,32,4,c('Forearms'))
     +R(cx-19,99,18,20,8,c('Glutes'))+R(cx+1,99,18,20,8,c('Glutes'))
     +R(cx-19,120,16,46,8,c('Hamstrings'))+R(cx+3,120,16,46,8,c('Hamstrings'))
     +R(cx-17,170,15,46,7,c('Calves'))+R(cx+2,170,15,46,7,c('Calves'));};
