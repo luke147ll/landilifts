@@ -910,6 +910,9 @@ const WEDGROUP_MUSCLE={
 };
 const REC_FULL=6;      // effective sets that = a fully fatiguing session
 const REC_WED_SETS=4;  // assumed effective sets per tagged Wednesday group
+const BAL_UNDER=6;     // < this many effective sets/week = under-trained
+const BAL_OVER=16;     // > this many effective sets/week = over-trained
+const BAL_WINDOW=4;    // average over the most recent N logged weeks
 
 function parseSets(arr){ return (arr||[]).map(s=>{ const w=parseFloat(s&&s.w), r=parseFloat(s&&s.r); return {w:isNaN(w)?0:w, r:isNaN(r)?0:r}; }); }
 function volOf(sets){ let v=0,a=false; for(const s of sets){ if(s.w>0&&s.r>0){ v+=s.w*s.r; a=true; } } return a?v:0; }
@@ -1323,12 +1326,18 @@ function bodyDiagramSVG(colorFor, isTap){
     +base(fcx)+front(fcx)+base(bcx)+back(bcx)
     +`<text x="${fcx}" y="244" class="bdlab">FRONT</text><text x="${bcx}" y="244" class="bdlab">BACK</text></svg>`;
 }
-let recData=null;
+let recData=null, balData=null, recView='recovery';
+function recToggle(){
+  return `<div class="rectabs">`
+    +`<button class="rectab${recView==='recovery'?' on':''}" data-recview="recovery">Recovery</button>`
+    +`<button class="rectab${recView==='balance'?' on':''}" data-recview="balance">Balance</button></div>`;
+}
 async function renderRecovery(){
   const card=document.getElementById('recCard'); if(!card) return;
+  if(recView==='balance') return renderBalanceView(card);
   const data=await recoveryData(); recData=data;
   if(!data.anySession){
-    card.innerHTML=`<div class="rechead"><div class="recttl">Muscle Readiness</div></div>`
+    card.innerHTML=`<div class="recttl">Muscle Readiness</div>`+recToggle()
       +`<div class="recempty">No finished workouts yet.<br>Log your sets and tap <b>Finish workout</b> so we can track how recently each muscle was trained.</div>`;
     return; }
   const c=m=>recColor(data.byMuscle[m].status);
@@ -1347,10 +1356,70 @@ async function renderRecovery(){
     secs+=`<div class="recsec"><div class="recseclbl ${st}"><span class="recdot"></span>${labelOf[st]}</div><div class="recchips">${chips}</div></div>`; });
   const anyTap=groups.needs.length||groups.recovering.length;
   const hint=anyTap?`<div class="rechint">Tap a recovering muscle to see what's driving it.</div>`:'';
-  card.innerHTML=`<div class="rechead"><div class="recttl">Muscle Readiness</div><div class="recsubh">Based on your finished workouts &amp; how long ago you trained each area.</div></div>`
+  card.innerHTML=`<div class="recttl">Muscle Readiness</div>`+recToggle()
+    +`<div class="recsubh">Based on your finished workouts &amp; how long ago you trained each area.</div>`
     +bodyDiagramSVG(c, isTap)
     +`<div class="reclegend"><span class="reclg"><i style="background:#a6e3a1"></i>Fresh</span><span class="reclg"><i style="background:#f9c04a"></i>Recovering</span><span class="reclg"><i style="background:#f38ba8"></i>Needs recovery</span><span class="reclg"><i style="background:#4b4b54"></i>No data</span></div>`
     +hint+secs;
+}
+function balColor(st){ return st==='under'?'#74a7f5':st==='balanced'?'#a6e3a1':st==='over'?'#f0a35a':'#4b4b54'; }
+async function renderBalanceView(card){
+  const data=await trainingBalanceData(); balData=data;
+  if(!data.anyData){
+    card.innerHTML=`<div class="recttl">Muscle Readiness</div>`+recToggle()
+      +`<div class="recempty">No logged sets yet.<br>Log some training to see which muscles are over- or under-trained.</div>`;
+    return; }
+  const c=m=>balColor(data.byMuscle[m].status);
+  const isTap=m=>data.byMuscle[m].moves.length>0;
+  const order=['over','under','balanced','none'];
+  const labelOf={over:'Over-trained',under:'Under-trained',balanced:'Balanced',none:'Not trained'};
+  const groups={over:[],under:[],balanced:[],none:[]};
+  MUSCLES.forEach(m=>groups[data.byMuscle[m].status].push(m));
+  let secs='';
+  order.forEach(st=>{ const ms=groups[st]; if(!ms.length) return;
+    const chips=ms.map(m=>{ const d=data.byMuscle[m]; const tappable=d.moves.length>0;
+      const sub=`<span class="recsub">${d.perWk.toFixed(1)}/wk</span>`;
+      const tip=tappable?`<span class="recchev">›</span>`:'';
+      return `<span class="balchip ${st}${tappable?' tap':''}"${tappable?` data-mc="${esc(m)}" role="button" tabindex="0"`:''}>${esc(m)}${sub}${tip}</span>`; }).join('');
+    secs+=`<div class="recsec"><div class="recseclbl ${st} bal"><span class="recdot"></span>${labelOf[st]}</div><div class="recchips">${chips}</div></div>`; });
+  card.innerHTML=`<div class="recttl">Muscle Readiness</div>`+recToggle()
+    +`<div class="recsubh">Avg sets per week per muscle over your last ${data.weeks} logged week${data.weeks===1?'':'s'} — spot over/under-trained areas.</div>`
+    +bodyDiagramSVG(c, isTap)
+    +`<div class="reclegend"><span class="reclg"><i style="background:#74a7f5"></i>Under (&lt;${BAL_UNDER})</span><span class="reclg"><i style="background:#a6e3a1"></i>Balanced</span><span class="reclg"><i style="background:#f0a35a"></i>Over (&gt;${BAL_OVER})</span><span class="reclg"><i style="background:#4b4b54"></i>No data</span></div>`
+    +`<div class="rechint">Tap a muscle to see which lifts drive its volume.</div>`
+    +secs;
+}
+// Average effective weekly sets per muscle (recent weeks) — the over/under-trained heat map.
+async function trainingBalanceData(){
+  const perWeek={}, movesPerWeek={};
+  const add=(wk,m,amt,name)=>{ (perWeek[wk]||(perWeek[wk]={}))[m]=((perWeek[wk]||{})[m]||0)+amt;
+    const mp=(movesPerWeek[wk]||(movesPerWeek[wk]={})); (mp[m]||(mp[m]={}))[name]=((mp[m]||{})[name]||0)+amt; };
+  for(let wk=1;wk<=12;wk++){
+    for(const day of ['mon','fri','sat']){
+      const log=await loadDay(wk,day); const exs=DATA.weeks[wk-1].days[day];
+      exs.forEach((ex,i)=>{ const map=EX_MUSCLE[ex.ex]; if(!map) return; const rec=log[i]; if(!rec||!rec.sets) return;
+        let eff=0; rec.sets.forEach(s=>{ const w=parseFloat(s.w),r=parseFloat(s.r); if(w>0&&r>0) eff++; });
+        if(eff===0){ if(rec.done) eff=ex.sets||3; else return; }
+        for(const m in map) add(wk, m, eff*map[m], ex.ex); });
+    }
+    const wed=await loadWed(wk);
+    if(wed.groups&&wed.groups.length){ wed.groups.forEach(g=>{ const map=WEDGROUP_MUSCLE[g]; if(!map) return;
+      for(const m in map) add(wk, m, REC_WED_SETS*map[m], g+' (Coach Danny)'); }); }
+  }
+  const wks=Object.keys(perWeek).map(Number).sort((a,b)=>a-b);
+  if(!wks.length) return {byMuscle:{}, anyData:false, weeks:0};
+  const recent=wks.slice(-BAL_WINDOW), nW=recent.length;
+  const byMuscle={};
+  for(const m of MUSCLES){
+    let total=0; const moveTot={};
+    recent.forEach(wk=>{ total+=(perWeek[wk]&&perWeek[wk][m])||0;
+      const mp=movesPerWeek[wk]&&movesPerWeek[wk][m]; if(mp) for(const n in mp) moveTot[n]=(moveTot[n]||0)+mp[n]; });
+    const perWk=total/nW;
+    const status=perWk<0.05?'none':perWk<BAL_UNDER?'under':perWk>BAL_OVER?'over':'balanced';
+    const moves=Object.keys(moveTot).map(n=>({name:n, perWk:moveTot[n]/nW})).sort((a,b)=>b.perWk-a.perWk);
+    byMuscle[m]={perWk, status, moves};
+  }
+  return {byMuscle, anyData:true, weeks:nW};
 }
 // Drill-down: which sessions/movements are driving a muscle's fatigue.
 function showMuscleCauses(name){
@@ -1379,6 +1448,27 @@ function showMuscleCauses(name){
     +`<div class="mcstatus" style="color:${col}">${statusLabel} · ${Math.round(d.readiness*100)}% ready</div>`
     +ready
     +`<div class="mcsublbl">What's driving this</div>`
+    +body
+    +`<button class="databtn" id="summClose" style="margin-top:16px">Close</button>`;
+  scrim.classList.add('show');
+}
+// Drill-down: which lifts drive a muscle's weekly volume (balance view).
+function showBalanceDetail(name){
+  if(!balData||!balData.byMuscle[name]) return;
+  const d=balData.byMuscle[name], col=balColor(d.status);
+  const label={under:'Under-trained',balanced:'Balanced',over:'Over-trained',none:'Not trained'}[d.status];
+  let body;
+  if(!d.moves.length){ body=`<p class="mcnone">No work hits ${esc(name)} in your recent weeks.</p>`; }
+  else { const tot=d.moves.reduce((a,m)=>a+m.perWk,0)||1;
+    body=d.moves.map(mv=>{ const share=Math.round(mv.perWk/tot*100);
+      return `<div class="mcsess"><div class="mcmv" style="border:none;margin:0;padding:0"><span class="mcmvn">${esc(mv.name)}</span><span class="mcmvb">${mv.perWk.toFixed(1)} sets/wk</span></div>`
+        +`<div class="mcimpact"><div class="mcbar"><div style="width:${Math.min(100,share)}%;background:${col}"></div></div><span>${share}%</span></div></div>`;
+    }).join('');
+  }
+  sheet.innerHTML=`<div class="grab"></div>`
+    +`<div class="mchead"><span class="mcdot" style="background:${col}"></span><h2>${esc(name)}</h2></div>`
+    +`<div class="mcstatus" style="color:${col}">${label} · ${d.perWk.toFixed(1)} sets/week</div>`
+    +`<div class="mcsublbl">Where the volume comes from</div>`
     +body
     +`<button class="databtn" id="summClose" style="margin-top:16px">Close</button>`;
   scrim.classList.add('show');
@@ -1534,11 +1624,17 @@ sheet.addEventListener('click',e=>{
     const row=e.target.closest('.ovrow'); if(row){ e.preventDefault(); toggle(row); } });
 })();
 
-// muscle readiness drill-down: tap a red/yellow muscle (chip or body region)
+// muscle readiness: view toggle + drill-down (tap a muscle chip or body region)
 (function(){ const card=document.getElementById('recCard'); if(!card) return;
-  card.addEventListener('click',e=>{ const t=e.target.closest('[data-mc]'); if(t) showMuscleCauses(t.getAttribute('data-mc')); });
+  const openFor=name=>{ recView==='balance'? showBalanceDetail(name) : showMuscleCauses(name); };
+  card.addEventListener('click',e=>{
+    const tab=e.target.closest('[data-recview]');
+    if(tab){ if(recView!==tab.dataset.recview){ recView=tab.dataset.recview; renderRecovery(); } return; }
+    const t=e.target.closest('[data-mc]'); if(t) openFor(t.getAttribute('data-mc')); });
   card.addEventListener('keydown',e=>{ if(e.key!=='Enter'&&e.key!==' ') return;
-    const t=e.target.closest('[data-mc]'); if(t){ e.preventDefault(); showMuscleCauses(t.getAttribute('data-mc')); } });
+    const tab=e.target.closest('[data-recview]');
+    if(tab){ e.preventDefault(); if(recView!==tab.dataset.recview){ recView=tab.dataset.recview; renderRecovery(); } return; }
+    const t=e.target.closest('[data-mc]'); if(t){ e.preventDefault(); openFor(t.getAttribute('data-mc')); } });
 })();
 
 // export the All-movements board as a shareable image

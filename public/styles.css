@@ -356,6 +356,20 @@ header{position:sticky;top:0;z-index:30;background:linear-gradient(180deg,var(--
 .recchip.tap:active{filter:brightness(1.25)}
 .recchev{font-size:13px;opacity:.6;margin-left:-2px}
 .rechint{font-size:11px;color:var(--ovl1);text-align:center;margin:2px 0 2px}
+.rectabs{display:flex;gap:4px;background:var(--crust);border:1px solid var(--s0);border-radius:10px;padding:3px;margin:10px 0 4px}
+.rectab{flex:1;padding:7px 0;border-radius:7px;font-family:var(--disp);font-weight:700;font-size:12px;color:var(--ovl1);transition:.15s}
+.rectab.on{background:var(--s1);color:var(--text)}
+.recseclbl.bal.over .recdot{background:#f0a35a}
+.recseclbl.bal.under .recdot{background:#74a7f5}
+.recseclbl.bal.balanced .recdot{background:#a6e3a1}
+.recseclbl.bal.none .recdot{background:#4b4b54}
+.balchip{display:inline-flex;align-items:center;gap:7px;padding:6px 10px;border-radius:9px;font-size:12px;font-weight:600;background:var(--s0);border:1px solid var(--s1);color:var(--sub1)}
+.balchip.over{background:rgba(240,163,90,.14);border-color:rgba(240,163,90,.34);color:#f3bd86}
+.balchip.under{background:rgba(116,167,245,.14);border-color:rgba(116,167,245,.34);color:#a8c6f7}
+.balchip.balanced{background:rgba(166,227,161,.12);border-color:rgba(166,227,161,.3);color:#bdeab6}
+.balchip.none{opacity:.72}
+.balchip.tap{cursor:pointer;-webkit-tap-highlight-color:transparent}
+.balchip.tap:active{filter:brightness(1.2)}
 .bdg{cursor:pointer}
 .bdg:active{opacity:.8}
 /* muscle cause breakdown sheet */
