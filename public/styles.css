@@ -457,19 +457,25 @@ header{position:sticky;top:0;z-index:30;background:linear-gradient(180deg,var(--
 
 /* =================== v2: gamification =================== */
 
-/* trophy shelf */
-.shelf{background:linear-gradient(180deg,var(--mantle),var(--base));border:1px solid var(--s0);border-radius:16px;
-  padding:14px 0 16px;margin:14px 0}
-.shelfhead{display:flex;align-items:baseline;justify-content:space-between;padding:0 16px 12px}
-.shelfttl{font-family:var(--disp);font-weight:700;font-size:14px}
-.shelfcount{font-size:11px;color:var(--sub)}
-.shelfcount b{color:var(--yellow)}
-.shelfrow{display:flex;gap:6px;overflow-x:auto;padding:0 14px 4px;scrollbar-width:none}
-.shelfrow::-webkit-scrollbar{display:none}
+/* weekly encouraging stats */
+.statcard{background:linear-gradient(180deg,var(--mantle),var(--base));border:1px solid var(--s0);border-radius:16px;padding:16px;margin-bottom:14px}
+.stathead{display:flex;align-items:baseline;justify-content:space-between}
+.statttl{font-family:var(--disp);font-weight:700;font-size:17px;color:var(--text)}
+.statwk{font-family:var(--disp);font-weight:700;font-size:11px;color:var(--ovl1);letter-spacing:.5px}
+.statmsg{font-size:12.5px;color:var(--sub1);margin:6px 0 13px;line-height:1.45}
+.statgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.stat{background:rgba(255,255,255,.03);border:1px solid var(--s1);border-radius:12px;padding:11px 6px;text-align:center}
+.stat.pr{background:rgba(166,227,161,.13);border-color:rgba(166,227,161,.34)}
+.statbig{font-family:var(--disp);font-weight:700;font-size:20px;color:var(--text);line-height:1.1}
+.stat.pr .statbig{color:var(--green)}
+.statlbl{font-size:9.5px;color:var(--ovl1);margin-top:4px;line-height:1.2;letter-spacing:.2px}
+.statall{display:flex;justify-content:space-between;gap:8px;margin-top:13px;padding-top:12px;border-top:1px solid rgba(255,255,255,.06);font-size:11px;color:var(--ovl1);text-align:center}
+.statall span{flex:1}
+.statall b{color:var(--sub1);font-weight:700;font-family:var(--disp)}
+.statempty{color:var(--sub);text-align:center;padding:22px 8px;font-size:12.5px;line-height:1.6}
 
-/* Medal — hexagon achievement badge */
+/* Medal — hexagon badge (used by the new-PR toast) */
 .medal{display:flex;flex-direction:column;align-items:center;gap:7px;flex-shrink:0}
-.medal.tap{cursor:pointer}
 .medal .mwrap{position:relative}
 .medal .mplate{position:absolute;inset:0;clip-path:polygon(50% 0%,93% 25%,93% 75%,50% 100%,7% 75%,7% 25%);
   background:var(--mfill);border:2px solid var(--mring);box-shadow:var(--mglow)}
@@ -486,21 +492,6 @@ header{position:sticky;top:0;z-index:30;background:linear-gradient(180deg,var(--
 .medal.t-bronze{--mring:var(--peach);--mfill:rgba(250,179,135,.16);--mglow:0 0 0 1px var(--peach),0 6px 18px -8px var(--peach)}
 .medal.t-silver{--mring:var(--sub1);--mfill:rgba(186,194,222,.16);--mglow:0 0 0 1px var(--sub1),0 6px 18px -8px var(--sub1)}
 .medal.t-gold{--mring:var(--yellow);--mfill:rgba(249,226,175,.18);--mglow:0 0 0 1px var(--yellow),0 6px 22px -7px var(--yellow)}
-.medal .mcap{text-align:center;line-height:1.2}
-.medal .mlabel{font-family:var(--disp);font-weight:700;font-size:10.5px;color:var(--text)}
-.medal.t-locked .mlabel{color:var(--ovl)}
-.medal .msub{font-size:9px;color:var(--ovl);margin-top:2px}
-
-/* achievement detail sheet */
-.achdetail{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 0 4px}
-.achblurb{color:var(--sub1);font-size:13.5px;text-align:center;line-height:1.6;margin:8px 4px 0}
-.tiertrack{display:flex;gap:8px;width:100%;margin-top:16px}
-.tierbox{flex:1;text-align:center;padding:10px 6px;border-radius:12px;background:var(--mantle);border:1px solid var(--s0)}
-.tierbox.on{border-color:currentColor}
-.tierbox .tn{font-family:var(--disp);font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.5px}
-.tierbox .tv{font-size:11px;color:var(--sub);margin-top:3px}
-.achprog{text-align:center;margin-top:16px;color:var(--sub1);font-size:13.5px}
-.achprog b{color:var(--text)}
 
 /* PR toast */
 .toast{position:fixed;top:calc(10px + env(safe-area-inset-top));left:14px;right:14px;z-index:60;max-width:732px;

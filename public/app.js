@@ -222,7 +222,6 @@ function makeRepsStepper(idx, ex, s, prefill){
 }
 
 // ---- Medals + achievements ----
-const TIER_COLOR={bronze:'var(--peach)',silver:'var(--sub1)',gold:'var(--yellow)',locked:'var(--ovl)'};
 function medalMarkup(glyph, tier, size){
   const locked=tier==='locked';
   return `<div class="mwrap" style="width:${size}px;height:${size}px">`
@@ -230,75 +229,63 @@ function medalMarkup(glyph, tier, size){
     +`<div class="mglyph" style="font-size:${(size*0.34).toFixed(1)}px">${locked?'✦':esc(glyph)}</div>`
     +(locked?'':`<div class="mpip">${tier}</div>`)+`</div>`;
 }
-const ACHIEVEMENTS=[
-  {id:'pr',     glyph:'▲', name:'Record Breaker', unit:'PRs',       tiers:[1,5,15],            blurb:'Set a new estimated 1RM on any lift.',                 derive:a=>a.prEvents},
-  {id:'streak', glyph:'◆', name:'On a Roll',      unit:'wk streak', tiers:[2,4,8],             blurb:'Log training across consecutive weeks without a gap.', derive:a=>a.streak},
-  {id:'volume', glyph:'▣', name:'Heavy Lifter',   unit:'lb total',  tiers:[10000,50000,150000],blurb:'Total weight moved across all logged sets.',          derive:a=>a.volume},
-  {id:'weeks',  glyph:'✓', name:'Clean Sweep',    unit:'weeks done',tiers:[1,5,12],            blurb:'Complete every exercise across a full training week.', derive:a=>a.fullWeeks},
-  {id:'consist',glyph:'◎', name:'Three for Three',unit:'x all-3',   tiers:[1,4,12],            blurb:'Hit all three training days in the same week.',       derive:a=>a.allThree},
-  {id:'failure',glyph:'⚑', name:'To Failure',     unit:'earned',    tiers:[1,25,100],          blurb:'Take a final working set to a true RPE 10.',          derive:a=>a.doneCount},
-  {id:'myo',    glyph:'⚡', name:'Myo Master',     unit:'myo sets',  tiers:[1,15,50],           blurb:'Complete a myo-rep extended set.',                    derive:a=>a.myoDone},
-];
-function tierOf(a){ if(a.value>=a.tiers[2])return'gold'; if(a.value>=a.tiers[1])return'silver'; if(a.value>=a.tiers[0])return'bronze'; return'locked'; }
-function nextThreshold(a){ for(const th of a.tiers) if(a.value<th) return th; return null; }
-async function computeAchievements(){
+// Achievement badges retired in favour of encouraging weekly stats.
+// One pass over all logged data: weekly PRs + this-week stats + all-time totals.
+async function progStats(){
   let all={}; try{ all=await gatherAll(); }catch(_){}
-  let volume=0, doneCount=0, myoDone=0, prEvents=0; const exBest={};
-  const weekHasLog={}, weekDayDone={};
+  const exBest={};                 // exercise -> best est. 1RM so far (chronological)
+  const prByWeek={}, volByWeek={}, setsByWeek={}, daysByWeek={}, weekHasLog={};
   for(let wk=1; wk<=12; wk++){
+    const prHits=new Set();
     for(const day of ['mon','fri','sat']){
       const log=all[keyFor(wk,day)]; if(!log) continue;
       const exs=(DATA.weeks[wk-1]&&DATA.weeks[wk-1].days[day])||[];
-      exs.forEach((ex,i)=>{ const rec=log[i]; if(!rec) return;
-        if(rec.done){ doneCount++; if(/myo/i.test(ex.tech||'')) myoDone++; (weekDayDone[wk]=weekDayDone[wk]||{})[day]=true; }
+      exs.forEach((ex,i)=>{ const rec=log[i]; if(!rec) return; let dayHas=false;
         (rec.sets||[]).forEach(st=>{ const w=parseFloat(st.w), r=parseFloat(st.r); if(w>0&&r>0){
-          volume+=w*r; const e=w*(1+r/30);
-          if(exBest[ex.ex]===undefined) exBest[ex.ex]=e; else if(e>exBest[ex.ex]){ prEvents++; exBest[ex.ex]=e; }
-          weekHasLog[wk]=true;
-        } else if(rec.done){ weekHasLog[wk]=true; } });
-        if(rec.done) weekHasLog[wk]=true;
+          dayHas=true;
+          volByWeek[wk]=(volByWeek[wk]||0)+w*r;
+          setsByWeek[wk]=(setsByWeek[wk]||0)+1;
+          const e=w*(1+r/30), prev=exBest[ex.ex];
+          if(prev===undefined) exBest[ex.ex]=e;          // first time = baseline, not a PR
+          else if(e>prev+0.001){ exBest[ex.ex]=e; prHits.add(ex.ex); }
+        }});
+        if(rec.done) dayHas=true;
+        if(dayHas){ (daysByWeek[wk]=daysByWeek[wk]||new Set()).add(day); weekHasLog[wk]=true; }
       });
     }
+    if(prHits.size) prByWeek[wk]=prHits.size;
   }
-  let fullWeeks=0, allThree=0, streak=0, run=0;
-  for(let wk=1; wk<=12; wk++){
-    if(weekHasLog[wk]){ run++; if(run>streak) streak=run; } else run=0;
-    const dd=weekDayDone[wk]||{}; if(dd.mon&&dd.fri&&dd.sat) allThree++;
-    let full=true, anyEx=false;
-    for(const day of ['mon','fri','sat']){ const exs=(DATA.weeks[wk-1]&&DATA.weeks[wk-1].days[day])||[]; const log=all[keyFor(wk,day)]||{};
-      exs.forEach((ex,i)=>{ anyEx=true; if(!(log[i]&&log[i].done)) full=false; }); }
-    if(anyEx&&full) fullWeeks++;
-  }
-  return {volume:Math.round(volume), doneCount, myoDone, prEvents, streak, allThree, fullWeeks};
+  let latestWk=0; for(let wk=12; wk>=1; wk--){ if(weekHasLog[wk]){ latestWk=wk; break; } }
+  let streak=0, run=0; for(let wk=1; wk<=12; wk++){ if(weekHasLog[wk]){ run++; if(run>streak) streak=run; } else run=0; }
+  const sum=o=>Object.values(o).reduce((a,b)=>a+b,0);
+  return { latestWk, streak,
+    prThis:prByWeek[latestWk]||0, volThis:Math.round(volByWeek[latestWk]||0),
+    setsThis:setsByWeek[latestWk]||0, daysThis:(daysByWeek[latestWk]||new Set()).size,
+    totalPRs:sum(prByWeek), totalVol:Math.round(sum(volByWeek)) };
 }
-let shelfList=[];
 async function renderShelf(){
-  const shelf=document.getElementById('shelf'); if(!shelf) return;
-  const agg=await computeAchievements();
-  shelfList=ACHIEVEMENTS.map(a=>({...a, value:a.derive(agg)}));
-  const earned=shelfList.filter(a=>tierOf(a)!=='locked').length;
-  const rows=shelfList.map((a,i)=>{ const tier=tierOf(a), next=nextThreshold(a);
-    const sub=tier==='gold'?'max tier':(next!=null? a.value+' / '+next : String(a.value));
-    return `<div class="medal t-${tier} tap" data-ach="${i}" style="width:80px">${medalMarkup(a.glyph,tier,64)}`
-      +`<div class="mcap"><div class="mlabel">${esc(a.name)}</div><div class="msub">${esc(sub)}</div></div></div>`;
-  }).join('');
-  shelf.innerHTML=`<div class="shelfhead"><span class="shelfttl">Achievements</span>`
-    +`<span class="shelfcount"><b>${earned}</b> / ${shelfList.length} unlocked</span></div>`
-    +`<div class="shelfrow">${rows}</div>`;
-}
-function openAch(a){
-  if(!a) return; const tier=tierOf(a), next=nextThreshold(a); const names=['bronze','silver','gold'];
-  const track=names.map((tn,i)=>{ const reached=a.value>=a.tiers[i]; const col=reached?TIER_COLOR[tn]:'var(--s1)';
-    return `<div class="tierbox${reached?' on':''}" style="color:${col}"><div class="tn" style="color:${reached?TIER_COLOR[tn]:'var(--ovl)'}">${tn}</div>`
-      +`<div class="tv">${a.tiers[i].toLocaleString()} ${esc(a.unit)}</div></div>`; }).join('');
-  const prog=tier==='gold'?'Max tier reached — legend.'
-    :`Currently <b>${a.value.toLocaleString()}</b> ${esc(a.unit)}${next!=null?` · <b>${(next-a.value).toLocaleString()}</b> to ${names[a.tiers.indexOf(next)]}`:''}.`;
-  sheet.innerHTML=`<div class="grab"></div>`
-    +`<div class="achdetail"><div class="medal t-${tier}" style="width:108px">${medalMarkup(a.glyph,tier,92)}</div>`
-    +`<h2 style="margin:10px 0 0">${esc(a.name)}</h2><div class="achblurb">${esc(a.blurb)}</div></div>`
-    +`<div class="tiertrack">${track}</div><div class="achprog">${prog}</div>`
-    +`<button class="databtn" id="achClose" style="margin-top:16px">Close</button>`;
-  scrim.classList.add('show');
+  const host=document.getElementById('shelf'); if(!host) return;
+  const s=await progStats();
+  if(!s.latestWk){
+    host.innerHTML=`<div class="statcard"><div class="statempty">Log your first sets in <b>Train</b> to start tracking PRs and weekly stats.</div></div>`;
+    return;
+  }
+  let msg;
+  if(s.prThis>0) msg=`🔥 ${s.prThis} new PR${s.prThis>1?'s':''} this week — keep it up!`;
+  else if(s.streak>=2) msg=`💪 ${s.streak}-week streak. Consistency is paying off.`;
+  else msg=`${s.setsThis} set${s.setsThis===1?'':'s'} logged this week. Go chase a PR!`;
+  const tiles=[
+    {big:s.prThis, lbl:'PRs this week', cls:'pr'},
+    {big:s.volThis.toLocaleString(), lbl:'Volume (lb)', cls:''},
+    {big:s.setsThis, lbl:'Sets', cls:''},
+    {big:s.daysThis+'/3', lbl:'Days trained', cls:''},
+  ].map(t=>`<div class="stat ${t.cls}"><div class="statbig">${t.big}</div><div class="statlbl">${t.lbl}</div></div>`).join('');
+  host.innerHTML=`<div class="statcard">`
+    +`<div class="stathead"><span class="statttl">This week</span><span class="statwk">Week ${s.latestWk}</span></div>`
+    +`<div class="statmsg">${msg}</div>`
+    +`<div class="statgrid">${tiles}</div>`
+    +`<div class="statall"><span><b>${s.streak}</b> wk streak</span><span><b>${s.totalPRs}</b> total PRs</span><span><b>${s.totalVol.toLocaleString()}</b> lb all-time</span></div>`
+    +`</div>`;
 }
 
 // ---- session completion ("Finish workout") ----
@@ -1509,11 +1496,8 @@ document.getElementById('seg').onclick=e=>{ const b=e.target.closest('.segbtn');
 };
 
 /* ---------- gamification wiring ---------- */
-document.getElementById('shelf').addEventListener('click',e=>{
-  const m=e.target.closest('[data-ach]'); if(m) openAch(shelfList[+m.dataset.ach]);
-});
 sheet.addEventListener('click',e=>{
-  if(e.target.id==='achClose'||e.target.id==='summClose') scrim.classList.remove('show');
+  if(e.target.id==='summClose') scrim.classList.remove('show');
   if(e.target.id==='wkAdvance'){ if(state.wk<12){ state.wk++; persistPos(); } scrim.classList.remove('show'); renderAll(); }
 });
 
