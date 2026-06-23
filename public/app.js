@@ -1290,37 +1290,47 @@ async function recoveryData(){
 function recColor(st){ return st==='fresh'?'#a6e3a1':st==='recovering'?'#f9c04a':st==='needs'?'#f38ba8':'#4b4b54'; }
 function fmtHrs(h){ if(h>=24){ const d=h/24; return (d>=2?Math.round(d):d.toFixed(1))+'d left'; } return Math.max(1,Math.round(h))+'h left'; }
 function fmtAgo(h){ if(h<1) return 'just now'; if(h<24) return Math.round(h)+'h ago'; const d=h/24; return (d>=2?Math.round(d):d.toFixed(1))+'d ago'; }
-// Stylized front/back figure; each muscle filled by its readiness colour.
+// Smooth anatomical front/back figure; each muscle filled by its readiness colour.
 // isTap(muscle) -> true wraps that muscle's shapes in a tappable group.
 function bodyDiagramSVG(colorFor, isTap){
   const tap=isTap||(()=>false);
-  const BASE='#34343b', ST='stroke="#1c1c1f" stroke-width="1"';
-  const R=(x,y,w,h,r,f)=>`<rect x="${x.toFixed(1)}" y="${y}" width="${w}" height="${h}" rx="${r}" fill="${f}" ${ST}/>`;
-  const E=(x,y,rx,ry,f)=>`<ellipse cx="${x.toFixed(1)}" cy="${y}" rx="${rx}" ry="${ry}" fill="${f}" ${ST}/>`;
+  const BASE='#34343b', ST='stroke="#1c1c1f" stroke-width="1" stroke-linejoin="round"';
+  const P=(d,f)=>`<path d="${d}" fill="${f}" ${ST}/>`;
+  const E=(x,y,rx,ry,f)=>`<ellipse cx="${x}" cy="${y}" rx="${rx}" ry="${ry}" fill="${f}" ${ST}/>`;
   const C=(x,y,r,f)=>`<circle cx="${x}" cy="${y}" r="${r}" fill="${f}" ${ST}/>`;
   const g=(m,shapes)=> tap(m)? `<g class="bdg" data-mc="${esc(m)}">${shapes}</g>` : shapes;
-  const base=cx=>C(cx,20,11,BASE)+R(cx-5,28,10,9,4,BASE)+R(cx-22,36,44,66,14,BASE)+R(cx-20,98,40,22,9,BASE)
-    +R(cx-35,40,13,40,6,BASE)+R(cx+22,40,13,40,6,BASE)+R(cx-38,78,11,36,5,BASE)+R(cx+27,78,11,36,5,BASE)
-    +R(cx-20,116,18,56,9,BASE)+R(cx+2,116,18,56,9,BASE)+R(cx-18,170,15,52,7,BASE)+R(cx+3,170,15,52,7,BASE);
-  const front=cx=>{const c=colorFor;
-    return g('Shoulders', E(cx-26,47,9,8,c('Shoulders'))+E(cx+26,47,9,8,c('Shoulders')))
-    +g('Chest', R(cx-19,46,17,17,5,c('Chest'))+R(cx+2,46,17,17,5,c('Chest')))
-    +g('Biceps', E(cx-29,66,6,12,c('Biceps'))+E(cx+29,66,6,12,c('Biceps')))
-    +g('Forearms', R(cx-37,80,9,32,4,c('Forearms'))+R(cx+28,80,9,32,4,c('Forearms')))
-    +g('Obliques', R(cx-17,67,6,26,3,c('Obliques'))+R(cx+11,67,6,26,3,c('Obliques')))
-    +g('Upper Abs', R(cx-9,65,18,15,4,c('Upper Abs')))
-    +g('Lower Abs', R(cx-9,81,18,16,4,c('Lower Abs')))
-    +g('Quads', R(cx-19,118,11,48,7,c('Quads'))+R(cx+8,118,11,48,7,c('Quads')))
-    +g('Adductors', R(cx-7,120,5,42,3,c('Adductors'))+R(cx+2,120,5,42,3,c('Adductors')));};
-  const back=cx=>{const c=colorFor;
-    return g('Back', R(cx-20,44,40,40,10,c('Back')))
-    +g('Lower Back', R(cx-13,85,26,13,4,c('Lower Back')))
-    +g('Rear Delts', E(cx-26,47,9,8,c('Rear Delts'))+E(cx+26,47,9,8,c('Rear Delts')))
-    +g('Triceps', E(cx-29,66,6,12,c('Triceps'))+E(cx+29,66,6,12,c('Triceps')))
-    +g('Forearms', R(cx-37,80,9,32,4,c('Forearms'))+R(cx+28,80,9,32,4,c('Forearms')))
-    +g('Glutes', R(cx-19,99,18,20,8,c('Glutes'))+R(cx+1,99,18,20,8,c('Glutes')))
-    +g('Hamstrings', R(cx-19,120,16,46,8,c('Hamstrings'))+R(cx+3,120,16,46,8,c('Hamstrings')))
-    +g('Calves', R(cx-17,170,15,46,7,c('Calves'))+R(cx+2,170,15,46,7,c('Calves')));};
+  const c=colorFor;
+  const base=cx=>C(cx,17,11,BASE)
+    +P(`M${cx-6},27 C${cx-6},33 ${cx-7},38 ${cx-9},42 L${cx+9},42 C${cx+7},38 ${cx+6},33 ${cx+6},27 Z`,BASE)
+    +P(`M${cx-22},47 C${cx-10},41 ${cx+10},41 ${cx+22},47 C${cx+24},59 ${cx+16},80 ${cx+14},90 C${cx+13},98 ${cx+18},102 ${cx+18},108 C${cx+18},115 ${cx+10},119 ${cx},119 C${cx-10},119 ${cx-18},115 ${cx-18},108 C${cx-18},102 ${cx-13},98 ${cx-14},90 C${cx-16},80 ${cx-24},59 ${cx-22},47 Z`,BASE)
+    +P(`M${cx+20},46 C${cx+27},47 ${cx+30},53 ${cx+29},63 C${cx+28},81 ${cx+26},100 ${cx+24},114 C${cx+23},119 ${cx+18.5},119 ${cx+18},113 C${cx+17.5},98 ${cx+16},72 ${cx+16},60 C${cx+16},51 ${cx+15},46 ${cx+20},46 Z`,BASE)
+    +P(`M${cx-20},46 C${cx-27},47 ${cx-30},53 ${cx-29},63 C${cx-28},81 ${cx-26},100 ${cx-24},114 C${cx-23},119 ${cx-18.5},119 ${cx-18},113 C${cx-17.5},98 ${cx-16},72 ${cx-16},60 C${cx-16},51 ${cx-15},46 ${cx-20},46 Z`,BASE)
+    +P(`M${cx+3.5},117 L${cx+17},117 C${cx+18},140 ${cx+15},158 ${cx+13.5},178 C${cx+12},198 ${cx+10.5},213 ${cx+9.5},225 C${cx+9},228 ${cx+4},228 ${cx+3.5},225 C${cx+3},213 ${cx+3},150 ${cx+3.5},117 Z`,BASE)
+    +P(`M${cx-3.5},117 L${cx-17},117 C${cx-18},140 ${cx-15},158 ${cx-13.5},178 C${cx-12},198 ${cx-10.5},213 ${cx-9.5},225 C${cx-9},228 ${cx-4},228 ${cx-3.5},225 C${cx-3},213 ${cx-3},150 ${cx-3.5},117 Z`,BASE);
+  const front=cx=>g('Shoulders', E(cx-20,50,8.5,8,c('Shoulders'))+E(cx+20,50,8.5,8,c('Shoulders')))
+    +g('Chest', P(`M${cx-1.5},49 C${cx-11},47 ${cx-17},50 ${cx-17},57 C${cx-17},63 ${cx-10},66 ${cx-2.5},64 C${cx-1.5},60 ${cx-1.5},53 ${cx-1.5},49 Z`,c('Chest'))
+      +P(`M${cx+1.5},49 C${cx+11},47 ${cx+17},50 ${cx+17},57 C${cx+17},63 ${cx+10},66 ${cx+2.5},64 C${cx+1.5},60 ${cx+1.5},53 ${cx+1.5},49 Z`,c('Chest')))
+    +g('Biceps', E(cx-22,70,5,11,c('Biceps'))+E(cx+22,70,5,11,c('Biceps')))
+    +g('Forearms', E(cx-23,98,4.5,12,c('Forearms'))+E(cx+23,98,4.5,12,c('Forearms')))
+    +g('Obliques', P(`M${cx-8.5},67 C${cx-15},69 ${cx-15},82 ${cx-10},92 L${cx-8},90 C${cx-8.5},80 ${cx-8.5},72 ${cx-8.5},67 Z`,c('Obliques'))
+      +P(`M${cx+8.5},67 C${cx+15},69 ${cx+15},82 ${cx+10},92 L${cx+8},90 C${cx+8.5},80 ${cx+8.5},72 ${cx+8.5},67 Z`,c('Obliques')))
+    +g('Upper Abs', P(`M${cx},65 C${cx-7},65 ${cx-7.5},66 ${cx-7.5},71 C${cx-7.5},77 ${cx-7},79 ${cx},79 C${cx+7},79 ${cx+7.5},77 ${cx+7.5},71 C${cx+7.5},66 ${cx+7},65 ${cx},65 Z`,c('Upper Abs')))
+    +g('Lower Abs', P(`M${cx},80 C${cx-7},80 ${cx-7},82 ${cx-6.5},88 C${cx-6},94 ${cx-3},96 ${cx},96 C${cx+3},96 ${cx+6},94 ${cx+6.5},88 C${cx+7},82 ${cx+7},80 ${cx},80 Z`,c('Lower Abs')))
+    +g('Quads', P(`M${cx-10.5},119 C${cx-16.5},123 ${cx-16.5},145 ${cx-14},170 C${cx-12.5},176 ${cx-10},176 ${cx-8.5},170 C${cx-6.5},150 ${cx-6.5},128 ${cx-7.5},120 C${cx-8.5},119 ${cx-9.5},119 ${cx-10.5},119 Z`,c('Quads'))
+      +P(`M${cx+10.5},119 C${cx+16.5},123 ${cx+16.5},145 ${cx+14},170 C${cx+12.5},176 ${cx+10},176 ${cx+8.5},170 C${cx+6.5},150 ${cx+6.5},128 ${cx+7.5},120 C${cx+8.5},119 ${cx+9.5},119 ${cx+10.5},119 Z`,c('Quads')))
+    +g('Adductors', P(`M${cx-5.5},120 C${cx-6},134 ${cx-5},150 ${cx-4},160 L${cx-3},158 C${cx-3},140 ${cx-3},124 ${cx-3.5},120 Z`,c('Adductors'))
+      +P(`M${cx+5.5},120 C${cx+6},134 ${cx+5},150 ${cx+4},160 L${cx+3},158 C${cx+3},140 ${cx+3},124 ${cx+3.5},120 Z`,c('Adductors')));
+  const back=cx=>g('Back', P(`M${cx-17},48 C${cx-18},60 ${cx-15},76 ${cx-7},86 L${cx+7},86 C${cx+15},76 ${cx+18},60 ${cx+17},48 C${cx+8},45 ${cx-8},45 ${cx-17},48 Z`,c('Back')))
+    +g('Lower Back', P(`M${cx-9},88 C${cx-10},92 ${cx-10},97 ${cx-7},100 L${cx+7},100 C${cx+10},97 ${cx+10},92 ${cx+9},88 Z`,c('Lower Back')))
+    +g('Rear Delts', E(cx-20,50,8.5,8,c('Rear Delts'))+E(cx+20,50,8.5,8,c('Rear Delts')))
+    +g('Triceps', E(cx-22,70,5,11,c('Triceps'))+E(cx+22,70,5,11,c('Triceps')))
+    +g('Forearms', E(cx-23,98,4.5,12,c('Forearms'))+E(cx+23,98,4.5,12,c('Forearms')))
+    +g('Glutes', P(`M${cx-1.5},101 C${cx-11},100 ${cx-17},104 ${cx-17},110 C${cx-17},117 ${cx-11},120 ${cx-2.5},118 C${cx-1.5},113 ${cx-1.5},105 ${cx-1.5},101 Z`,c('Glutes'))
+      +P(`M${cx+1.5},101 C${cx+11},100 ${cx+17},104 ${cx+17},110 C${cx+17},117 ${cx+11},120 ${cx+2.5},118 C${cx+1.5},113 ${cx+1.5},105 ${cx+1.5},101 Z`,c('Glutes')))
+    +g('Hamstrings', P(`M${cx-10.5},122 C${cx-16.5},126 ${cx-15.5},148 ${cx-13},170 C${cx-11.5},176 ${cx-9},176 ${cx-8},170 C${cx-6.5},150 ${cx-6.5},130 ${cx-7.5},122 C${cx-9},121 ${cx-10},121 ${cx-10.5},122 Z`,c('Hamstrings'))
+      +P(`M${cx+10.5},122 C${cx+16.5},126 ${cx+15.5},148 ${cx+13},170 C${cx+11.5},176 ${cx+9},176 ${cx+8},170 C${cx+6.5},150 ${cx+6.5},130 ${cx+7.5},122 C${cx+9},121 ${cx+10},121 ${cx+10.5},122 Z`,c('Hamstrings')))
+    +g('Calves', P(`M${cx-8.5},180 C${cx-13},184 ${cx-13},200 ${cx-10},212 C${cx-8},206 ${cx-6.5},194 ${cx-6.5},182 C${cx-7},180 ${cx-8},180 ${cx-8.5},180 Z`,c('Calves'))
+      +P(`M${cx+8.5},180 C${cx+13},184 ${cx+13},200 ${cx+10},212 C${cx+8},206 ${cx+6.5},194 ${cx+6.5},182 C${cx+7},180 ${cx+8},180 ${cx+8.5},180 Z`,c('Calves')));
   const fcx=84, bcx=236;
   return `<svg viewBox="0 0 320 250" class="bodysvg" role="img" aria-label="Muscle readiness, front and back view">`
     +base(fcx)+front(fcx)+base(bcx)+back(bcx)
