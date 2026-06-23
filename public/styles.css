@@ -352,6 +352,32 @@ header{position:sticky;top:0;z-index:30;background:linear-gradient(180deg,var(--
 .recchip.none{opacity:.72}
 .recsub{font-size:10px;font-weight:600;opacity:.82;font-family:var(--body)}
 .recempty{color:var(--sub);text-align:center;padding:22px 8px;font-size:12.5px;line-height:1.6}
+.recchip.tap{cursor:pointer;-webkit-tap-highlight-color:transparent}
+.recchip.tap:active{filter:brightness(1.25)}
+.recchev{font-size:13px;opacity:.6;margin-left:-2px}
+.rechint{font-size:11px;color:var(--ovl1);text-align:center;margin:2px 0 2px}
+.bdg{cursor:pointer}
+.bdg:active{opacity:.8}
+/* muscle cause breakdown sheet */
+.mchead{display:flex;align-items:center;gap:9px;margin-top:4px}
+.mchead h2{margin:0}
+.mcdot{width:13px;height:13px;border-radius:4px;flex:0 0 auto}
+.mcstatus{font-family:var(--disp);font-weight:700;font-size:12.5px;margin-top:6px}
+.mcready{font-size:12px;color:var(--sub);margin-top:4px}
+.mcready b{color:var(--text);font-family:var(--disp)}
+.mcsublbl{font-family:var(--disp);font-size:10px;letter-spacing:.6px;text-transform:uppercase;color:var(--ovl);margin:18px 0 9px}
+.mcsess{background:rgba(255,255,255,.03);border:1px solid var(--s1);border-radius:12px;padding:11px 12px;margin-bottom:9px}
+.mcsesshd{display:flex;justify-content:space-between;align-items:baseline;font-family:var(--disp);font-weight:700;font-size:12px;color:var(--sub1)}
+.mcago{font-weight:400;font-size:11px;color:var(--ovl1)}
+.mcmv{display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:4px 0;font-size:12.5px;border-top:1px solid rgba(255,255,255,.05);margin-top:6px}
+.mcmv:first-of-type{border-top:none;margin-top:7px}
+.mcmvn{color:var(--text)}
+.mcmvb{color:var(--ovl1);font-size:11px;white-space:nowrap;font-family:var(--body)}
+.mcimpact{display:flex;align-items:center;gap:8px;margin-top:9px}
+.mcbar{flex:1;height:6px;border-radius:3px;background:rgba(255,255,255,.07);overflow:hidden}
+.mcbar div{height:100%;border-radius:3px}
+.mcimpact span{font-size:10.5px;color:var(--ovl1);white-space:nowrap}
+.mcnone{color:var(--sub);font-size:13px;line-height:1.6}
 .exsel:active{background:rgba(0,0,0,.34)}
 .bcBig.pr{color:var(--peach)}
 .bcStats{display:flex;gap:40px;margin-top:12px}

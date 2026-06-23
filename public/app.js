@@ -1242,19 +1242,21 @@ async function recoveryData(){
       const fin=await loadFin(wk,day); if(!fin||!fin.at) continue;
       const at=Date.parse(fin.at); if(isNaN(at)) continue;
       const exs=(DATA.weeks[wk-1]&&DATA.weeks[wk-1].days[day])||[]; const log=await loadDay(wk,day);
-      const load={};
+      const load={}, moves={};
       exs.forEach((ex,i)=>{ const map=EX_MUSCLE[ex.ex]; if(!map) return; const rec=log[i]; let eff=0;
         if(rec&&rec.sets) rec.sets.forEach(s=>{ const w=parseFloat(s.w),r=parseFloat(s.r); if(w>0&&r>0) eff++; });
         if(eff===0){ if(rec&&rec.done) eff=ex.sets||3; else return; }
-        for(const m in map) load[m]=(load[m]||0)+eff*map[m]; });
-      if(Object.keys(load).length) sessions.push({at, load});
+        for(const m in map){ const amt=eff*map[m]; load[m]=(load[m]||0)+amt;
+          (moves[m]||(moves[m]=[])).push({name:ex.ex, eff, weight:map[m], amt}); } });
+      if(Object.keys(load).length) sessions.push({at, wk, day, load, moves});
     }
     const finW=await loadFin(wk,'wed');
     if(finW&&finW.at){ const at=Date.parse(finW.at);
-      if(!isNaN(at)){ const wed=await loadWed(wk); const load={};
+      if(!isNaN(at)){ const wed=await loadWed(wk); const load={}, moves={};
         (wed.groups||[]).forEach(g=>{ const map=WEDGROUP_MUSCLE[g]; if(!map) return;
-          for(const m in map) load[m]=(load[m]||0)+REC_WED_SETS*map[m]; });
-        if(Object.keys(load).length) sessions.push({at, load}); } }
+          for(const m in map){ const amt=REC_WED_SETS*map[m]; load[m]=(load[m]||0)+amt;
+            (moves[m]||(moves[m]=[])).push({name:g+' (Coach Danny)', eff:REC_WED_SETS, weight:map[m], amt}); } });
+        if(Object.keys(load).length) sessions.push({at, wk, day:'wed', load, moves}); } }
   }
   const fatigueAt=(m,t)=>{ let f=0;
     for(const s of sessions){ const L=s.load[m]; if(!L) continue;
@@ -1271,63 +1273,113 @@ async function recoveryData(){
     let hoursToFresh=0;
     if(trained&&fatigue>0.34){ for(let h=1;h<=maxH+1;h++){ if(fatigueAt(m,now+h*3.6e6)<=0.34){ hoursToFresh=h; break; } } }
     let lastAt=0; sessions.forEach(s=>{ if(s.load[m]>0&&s.at>lastAt) lastAt=s.at; });
-    byMuscle[m]={trained, fatigue, readiness, status, hoursToFresh, lastAgoH:lastAt?(now-lastAt)/3.6e6:null};
+    // which sessions/movements are still driving this muscle's fatigue, biggest first
+    const causes=sessions.filter(s=>s.load[m]>0).map(s=>{
+      const eH=(now-s.at)/3.6e6, decay=Math.max(0,1-eH/REC_HOURS[m]);
+      const contribution=Math.min(1,s.load[m]/REC_FULL)*decay;
+      return {wk:s.wk, day:s.day, elapsedH:eH, contribution,
+        moves:(s.moves[m]||[]).slice().sort((a,b)=>b.amt-a.amt)};
+    }).filter(c=>c.contribution>0.001).sort((a,b)=>b.contribution-a.contribution);
+    byMuscle[m]={trained, fatigue, readiness, status, hoursToFresh, lastAgoH:lastAt?(now-lastAt)/3.6e6:null, causes};
   }
   return {byMuscle, anySession:sessions.length>0};
 }
 function recColor(st){ return st==='fresh'?'#a6e3a1':st==='recovering'?'#f9c04a':st==='needs'?'#f38ba8':'#4b4b54'; }
 function fmtHrs(h){ if(h>=24){ const d=h/24; return (d>=2?Math.round(d):d.toFixed(1))+'d left'; } return Math.max(1,Math.round(h))+'h left'; }
-// Stylized front/back figure; each muscle filled by its readiness color.
-function bodyDiagramSVG(colorFor){
+function fmtAgo(h){ if(h<1) return 'just now'; if(h<24) return Math.round(h)+'h ago'; const d=h/24; return (d>=2?Math.round(d):d.toFixed(1))+'d ago'; }
+// Stylized front/back figure; each muscle filled by its readiness colour.
+// isTap(muscle) -> true wraps that muscle's shapes in a tappable group.
+function bodyDiagramSVG(colorFor, isTap){
+  const tap=isTap||(()=>false);
   const BASE='#34343b', ST='stroke="#1c1c1f" stroke-width="1"';
   const R=(x,y,w,h,r,f)=>`<rect x="${x.toFixed(1)}" y="${y}" width="${w}" height="${h}" rx="${r}" fill="${f}" ${ST}/>`;
   const E=(x,y,rx,ry,f)=>`<ellipse cx="${x.toFixed(1)}" cy="${y}" rx="${rx}" ry="${ry}" fill="${f}" ${ST}/>`;
   const C=(x,y,r,f)=>`<circle cx="${x}" cy="${y}" r="${r}" fill="${f}" ${ST}/>`;
+  const g=(m,shapes)=> tap(m)? `<g class="bdg" data-mc="${esc(m)}">${shapes}</g>` : shapes;
   const base=cx=>C(cx,20,11,BASE)+R(cx-5,28,10,9,4,BASE)+R(cx-22,36,44,66,14,BASE)+R(cx-20,98,40,22,9,BASE)
     +R(cx-35,40,13,40,6,BASE)+R(cx+22,40,13,40,6,BASE)+R(cx-38,78,11,36,5,BASE)+R(cx+27,78,11,36,5,BASE)
     +R(cx-20,116,18,56,9,BASE)+R(cx+2,116,18,56,9,BASE)+R(cx-18,170,15,52,7,BASE)+R(cx+3,170,15,52,7,BASE);
-  const front=cx=>{const c=colorFor; return E(cx-26,47,9,8,c('Shoulders'))+E(cx+26,47,9,8,c('Shoulders'))
-    +R(cx-19,46,17,17,5,c('Chest'))+R(cx+2,46,17,17,5,c('Chest'))
-    +E(cx-29,66,6,12,c('Biceps'))+E(cx+29,66,6,12,c('Biceps'))
-    +R(cx-37,80,9,32,4,c('Forearms'))+R(cx+28,80,9,32,4,c('Forearms'))
-    +R(cx-9,65,18,33,5,c('Abs'))
-    +R(cx-19,118,11,48,7,c('Quads'))+R(cx+8,118,11,48,7,c('Quads'))
-    +R(cx-7,120,5,42,3,c('Adductors'))+R(cx+2,120,5,42,3,c('Adductors'));};
-  const back=cx=>{const c=colorFor; return R(cx-20,44,40,40,10,c('Back'))
-    +R(cx-13,85,26,13,4,c('Lower Back'))
-    +E(cx-26,47,9,8,c('Rear Delts'))+E(cx+26,47,9,8,c('Rear Delts'))
-    +E(cx-29,66,6,12,c('Triceps'))+E(cx+29,66,6,12,c('Triceps'))
-    +R(cx-37,80,9,32,4,c('Forearms'))+R(cx+28,80,9,32,4,c('Forearms'))
-    +R(cx-19,99,18,20,8,c('Glutes'))+R(cx+1,99,18,20,8,c('Glutes'))
-    +R(cx-19,120,16,46,8,c('Hamstrings'))+R(cx+3,120,16,46,8,c('Hamstrings'))
-    +R(cx-17,170,15,46,7,c('Calves'))+R(cx+2,170,15,46,7,c('Calves'));};
+  const front=cx=>{const c=colorFor;
+    return g('Shoulders', E(cx-26,47,9,8,c('Shoulders'))+E(cx+26,47,9,8,c('Shoulders')))
+    +g('Chest', R(cx-19,46,17,17,5,c('Chest'))+R(cx+2,46,17,17,5,c('Chest')))
+    +g('Biceps', E(cx-29,66,6,12,c('Biceps'))+E(cx+29,66,6,12,c('Biceps')))
+    +g('Forearms', R(cx-37,80,9,32,4,c('Forearms'))+R(cx+28,80,9,32,4,c('Forearms')))
+    +g('Abs', R(cx-9,65,18,33,5,c('Abs')))
+    +g('Quads', R(cx-19,118,11,48,7,c('Quads'))+R(cx+8,118,11,48,7,c('Quads')))
+    +g('Adductors', R(cx-7,120,5,42,3,c('Adductors'))+R(cx+2,120,5,42,3,c('Adductors')));};
+  const back=cx=>{const c=colorFor;
+    return g('Back', R(cx-20,44,40,40,10,c('Back')))
+    +g('Lower Back', R(cx-13,85,26,13,4,c('Lower Back')))
+    +g('Rear Delts', E(cx-26,47,9,8,c('Rear Delts'))+E(cx+26,47,9,8,c('Rear Delts')))
+    +g('Triceps', E(cx-29,66,6,12,c('Triceps'))+E(cx+29,66,6,12,c('Triceps')))
+    +g('Forearms', R(cx-37,80,9,32,4,c('Forearms'))+R(cx+28,80,9,32,4,c('Forearms')))
+    +g('Glutes', R(cx-19,99,18,20,8,c('Glutes'))+R(cx+1,99,18,20,8,c('Glutes')))
+    +g('Hamstrings', R(cx-19,120,16,46,8,c('Hamstrings'))+R(cx+3,120,16,46,8,c('Hamstrings')))
+    +g('Calves', R(cx-17,170,15,46,7,c('Calves'))+R(cx+2,170,15,46,7,c('Calves')));};
   const fcx=84, bcx=236;
   return `<svg viewBox="0 0 320 250" class="bodysvg" role="img" aria-label="Muscle readiness, front and back view">`
     +base(fcx)+front(fcx)+base(bcx)+back(bcx)
     +`<text x="${fcx}" y="244" class="bdlab">FRONT</text><text x="${bcx}" y="244" class="bdlab">BACK</text></svg>`;
 }
+let recData=null;
 async function renderRecovery(){
   const card=document.getElementById('recCard'); if(!card) return;
-  const data=await recoveryData();
+  const data=await recoveryData(); recData=data;
   if(!data.anySession){
     card.innerHTML=`<div class="rechead"><div class="recttl">Muscle Readiness</div></div>`
       +`<div class="recempty">No finished workouts yet.<br>Log your sets and tap <b>Finish workout</b> so we can track how recently each muscle was trained.</div>`;
     return; }
   const c=m=>recColor(data.byMuscle[m].status);
+  const isTap=m=>{ const st=data.byMuscle[m].status; return st==='needs'||st==='recovering'; };
   const order=['needs','recovering','fresh','none'];
   const labelOf={needs:'Needs recovery',recovering:'Recovering',fresh:'Fresh',none:'Not trained yet'};
   const groups={needs:[],recovering:[],fresh:[],none:[]};
   MUSCLES.forEach(m=>groups[data.byMuscle[m].status].push(m));
   let secs='';
   order.forEach(st=>{ const ms=groups[st]; if(!ms.length) return;
+    const tappable=st==='needs'||st==='recovering';
     const chips=ms.map(m=>{ const d=data.byMuscle[m];
-      const sub=(st==='recovering'||st==='needs')&&d.hoursToFresh>0?`<span class="recsub">${fmtHrs(d.hoursToFresh)}</span>`:'';
-      return `<span class="recchip ${st}">${esc(m)}${sub}</span>`; }).join('');
+      const sub=tappable&&d.hoursToFresh>0?`<span class="recsub">${fmtHrs(d.hoursToFresh)}</span>`:'';
+      const tip=tappable?`<span class="recchev">›</span>`:'';
+      return `<span class="recchip ${st}${tappable?' tap':''}"${tappable?` data-mc="${esc(m)}" role="button" tabindex="0"`:''}>${esc(m)}${sub}${tip}</span>`; }).join('');
     secs+=`<div class="recsec"><div class="recseclbl ${st}"><span class="recdot"></span>${labelOf[st]}</div><div class="recchips">${chips}</div></div>`; });
+  const anyTap=groups.needs.length||groups.recovering.length;
+  const hint=anyTap?`<div class="rechint">Tap a recovering muscle to see what's driving it.</div>`:'';
   card.innerHTML=`<div class="rechead"><div class="recttl">Muscle Readiness</div><div class="recsubh">Based on your finished workouts &amp; how long ago you trained each area.</div></div>`
-    +bodyDiagramSVG(c)
+    +bodyDiagramSVG(c, isTap)
     +`<div class="reclegend"><span class="reclg"><i style="background:#a6e3a1"></i>Fresh</span><span class="reclg"><i style="background:#f9c04a"></i>Recovering</span><span class="reclg"><i style="background:#f38ba8"></i>Needs recovery</span><span class="reclg"><i style="background:#4b4b54"></i>No data</span></div>`
-    +secs;
+    +hint+secs;
+}
+// Drill-down: which sessions/movements are driving a muscle's fatigue.
+function showMuscleCauses(name){
+  if(!recData||!recData.byMuscle[name]) return;
+  const d=recData.byMuscle[name], col=recColor(d.status);
+  const statusLabel={fresh:'Fresh',recovering:'Recovering',needs:'Needs recovery',none:'Not trained recently'}[d.status];
+  const dayLabel={mon:'Monday',fri:'Friday',sat:'Saturday',wed:'Wednesday'};
+  let body;
+  if(!d.causes||!d.causes.length){
+    body=`<p class="mcnone">Nothing recent is loading ${esc(name)} right now — it's recovered.</p>`;
+  } else {
+    const tot=d.causes.reduce((a,c)=>a+c.contribution,0)||1;
+    body=d.causes.map(c=>{
+      const moves=c.moves.map(mv=>`<div class="mcmv"><span class="mcmvn">${esc(mv.name)}</span>`
+        +`<span class="mcmvb">${mv.eff} set${mv.eff===1?'':'s'}${mv.weight<1?' · assist':''}</span></div>`).join('');
+      const share=Math.round(c.contribution/tot*100);
+      return `<div class="mcsess"><div class="mcsesshd"><span>Wk ${c.wk} · ${dayLabel[c.day]||c.day}</span><span class="mcago">${fmtAgo(c.elapsedH)}</span></div>`
+        +moves
+        +`<div class="mcimpact"><div class="mcbar"><div style="width:${Math.min(100,share)}%;background:${col}"></div></div><span>${share}% of current fatigue</span></div></div>`;
+    }).join('');
+  }
+  const ready=(d.status==='needs'||d.status==='recovering')&&d.hoursToFresh>0
+    ?`<div class="mcready">Fresh again in <b>${fmtHrs(d.hoursToFresh).replace(' left','')}</b></div>`:'';
+  sheet.innerHTML=`<div class="grab"></div>`
+    +`<div class="mchead"><span class="mcdot" style="background:${col}"></span><h2>${esc(name)}</h2></div>`
+    +`<div class="mcstatus" style="color:${col}">${statusLabel} · ${Math.round(d.readiness*100)}% ready</div>`
+    +ready
+    +`<div class="mcsublbl">What's driving this</div>`
+    +body
+    +`<button class="databtn" id="summClose" style="margin-top:16px">Close</button>`;
+  scrim.classList.add('show');
 }
 
 async function renderProg(){
@@ -1478,6 +1530,13 @@ sheet.addEventListener('click',e=>{
   cb.addEventListener('click',e=>{ const row=e.target.closest('.ovrow'); if(row) toggle(row); });
   cb.addEventListener('keydown',e=>{ if(e.key!=='Enter'&&e.key!==' ') return;
     const row=e.target.closest('.ovrow'); if(row){ e.preventDefault(); toggle(row); } });
+})();
+
+// muscle readiness drill-down: tap a red/yellow muscle (chip or body region)
+(function(){ const card=document.getElementById('recCard'); if(!card) return;
+  card.addEventListener('click',e=>{ const t=e.target.closest('[data-mc]'); if(t) showMuscleCauses(t.getAttribute('data-mc')); });
+  card.addEventListener('keydown',e=>{ if(e.key!=='Enter'&&e.key!==' ') return;
+    const t=e.target.closest('[data-mc]'); if(t){ e.preventDefault(); showMuscleCauses(t.getAttribute('data-mc')); } });
 })();
 
 // export the All-movements board as a shareable image
