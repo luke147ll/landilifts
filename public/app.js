@@ -859,9 +859,9 @@ DATA.weeks.forEach(w=>{ ['mon','fri','sat'].forEach(dk=>{ w.days[dk].forEach((ex
 
 /* ===================== muscle recovery tracker ===================== */
 // Ordered list of tracked muscles (front + back).
-const MUSCLES=['Chest','Shoulders','Rear Delts','Back','Lower Back','Triceps','Biceps','Forearms','Abs','Quads','Adductors','Hamstrings','Glutes','Calves'];
+const MUSCLES=['Chest','Shoulders','Rear Delts','Back','Lower Back','Triceps','Biceps','Forearms','Upper Abs','Lower Abs','Obliques','Quads','Adductors','Hamstrings','Glutes','Calves'];
 // Rough time-to-recover (hours) — bigger muscles take longer.
-const REC_HOURS={Chest:72,Back:72,'Lower Back':72,Quads:72,Hamstrings:72,Glutes:60,Adductors:60,Shoulders:48,'Rear Delts':48,Triceps:48,Biceps:48,Calves:48,Forearms:36,Abs:36};
+const REC_HOURS={Chest:72,Back:72,'Lower Back':72,Quads:72,Hamstrings:72,Glutes:60,Adductors:60,Shoulders:48,'Rear Delts':48,Triceps:48,Biceps:48,Calves:48,Forearms:36,'Upper Abs':36,'Lower Abs':36,Obliques:36};
 // Per-exercise muscle involvement (1 = prime mover, 0.5 = strong assist, 0.25 = light).
 const EX_MUSCLE={
   '45° Incline Barbell Press':{Chest:1,Triceps:.5,Shoulders:.5},
@@ -886,11 +886,11 @@ const EX_MUSCLE={
   'Cable Triceps Kickback':{Triceps:1},
   'EZ-Bar Skull Crusher':{Triceps:1},
   'Overhead Cable Triceps Extension (Bar)':{Triceps:1},
-  'Cable Crunch':{Abs:1},
-  'Machine Crunch':{Abs:1},
+  'Cable Crunch':{'Upper Abs':1,'Lower Abs':.5},
+  'Machine Crunch':{'Upper Abs':1,'Lower Abs':.5},
   '45° Hyperextension':{'Lower Back':1,Hamstrings:.5,Glutes:.5},
   'Barbell RDL':{Hamstrings:1,Glutes:.75,'Lower Back':.5},
-  'DB Bulgarian Split Squat':{Quads:1,Glutes:.75,Adductors:.25},
+  'DB Bulgarian Split Squat':{Quads:1,Glutes:.75,Adductors:.25,Obliques:.25},
   'Hack Squat':{Quads:1,Glutes:.5,Adductors:.25},
   'Leg Extension':{Quads:1},
   'Leg Press':{Quads:1,Glutes:.75,Adductors:.25},
@@ -898,15 +898,15 @@ const EX_MUSCLE={
   'Machine Hip Adduction':{Adductors:1},
   'Seated Leg Curl':{Hamstrings:1},
   'Smith Machine Squat':{Quads:1,Glutes:.75,Adductors:.25,'Lower Back':.25},
-  'Smith Machine Static Lunge w/ Elevated Front Foot':{Quads:1,Glutes:.75,Adductors:.25},
+  'Smith Machine Static Lunge w/ Elevated Front Foot':{Quads:1,Glutes:.75,Adductors:.25,Obliques:.25},
   'Standing Calf Raise':{Calves:1},
-  'Walking Lunge':{Quads:1,Glutes:.75,Adductors:.25},
+  'Walking Lunge':{Quads:1,Glutes:.75,Adductors:.25,Obliques:.25},
 };
 // Coarse Wednesday tags -> muscles (each tagged group counts as a moderate hit).
 const WEDGROUP_MUSCLE={
   Chest:{Chest:1}, Back:{Back:1,Biceps:.5}, Shoulders:{Shoulders:1},
   Arms:{Biceps:1,Triceps:1}, Legs:{Quads:1,Hamstrings:1,Glutes:.75,Calves:.5},
-  Glutes:{Glutes:1}, Core:{Abs:1}, Cardio:{},
+  Glutes:{Glutes:1}, Core:{'Upper Abs':1,'Lower Abs':1,Obliques:.75}, Cardio:{},
 };
 const REC_FULL=6;      // effective sets that = a fully fatiguing session
 const REC_WED_SETS=4;  // assumed effective sets per tagged Wednesday group
@@ -1304,7 +1304,9 @@ function bodyDiagramSVG(colorFor, isTap){
     +g('Chest', R(cx-19,46,17,17,5,c('Chest'))+R(cx+2,46,17,17,5,c('Chest')))
     +g('Biceps', E(cx-29,66,6,12,c('Biceps'))+E(cx+29,66,6,12,c('Biceps')))
     +g('Forearms', R(cx-37,80,9,32,4,c('Forearms'))+R(cx+28,80,9,32,4,c('Forearms')))
-    +g('Abs', R(cx-9,65,18,33,5,c('Abs')))
+    +g('Obliques', R(cx-17,67,6,26,3,c('Obliques'))+R(cx+11,67,6,26,3,c('Obliques')))
+    +g('Upper Abs', R(cx-9,65,18,15,4,c('Upper Abs')))
+    +g('Lower Abs', R(cx-9,81,18,16,4,c('Lower Abs')))
     +g('Quads', R(cx-19,118,11,48,7,c('Quads'))+R(cx+8,118,11,48,7,c('Quads')))
     +g('Adductors', R(cx-7,120,5,42,3,c('Adductors'))+R(cx+2,120,5,42,3,c('Adductors')));};
   const back=cx=>{const c=colorFor;
