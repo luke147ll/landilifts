@@ -1255,7 +1255,13 @@ async function exportWeekImage(){
   for(const dk of ['mon','fri','sat']){
     const exs=wkObj.days[dk]||[]; if(!exs.length) continue;
     const dm=DAYS.find(x=>x.k===dk), log=await loadDay(wk,dk);
-    const rows=exs.map((ex,i)=>{ const rec=log[i]; const t=rec&&rec.sets?topSet(parseSets(rec.sets)):null;
+    const rows=exs.map((ex,i)=>{ const rec=log[i]; let t=null;
+      if(rec){
+        // only count sets the user actually confirmed — not pre-filled/planned weights
+        const doneSets=(rec.sets||[]).filter(s=>s&&s.done);
+        if(doneSets.length) t=topSet(parseSets(doneSets));
+        else if(rec.done) t=topSet(parseSets(rec.sets||[])); // legacy: movement done, no per-set flags
+      }
       return {name:ex.ex, plan:`${ex.sets} × ${ex.reps}`, top:t}; });
     days.push({k:dk, typ:dm.typ, rows});
   }
