@@ -136,6 +136,10 @@ header{position:sticky;top:0;z-index:30;background:linear-gradient(180deg,var(--
   font-family:var(--disp);font-weight:700;font-size:14px;letter-spacing:.3px;transition:transform .15s}
 .wkbtn:active{transform:scale(.97)}
 .wkbtn.done{background:rgba(249,226,175,.16);border-color:rgba(249,226,175,.5);color:var(--yellow)}
+.sharebtn{width:100%;padding:13px;border-radius:14px;background:rgba(255,255,255,.04);border:1px solid var(--s1);color:var(--sub1);
+  font-family:var(--body);font-weight:600;font-size:13px;letter-spacing:.3px;transition:transform .15s}
+.sharebtn:active{transform:scale(.97)}
+.sharebtn[disabled]{opacity:.55}
 .summgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0 4px}
 .scell{background:var(--mantle);border:1px solid var(--s0);border-radius:12px;padding:13px;text-align:center}
 .scell .sv{font-family:var(--disp);font-weight:700;font-size:24px;color:var(--text);line-height:1.1}

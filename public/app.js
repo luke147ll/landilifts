@@ -682,6 +682,15 @@ async function renderList(){
     : `<button class="wkbtn" id="wkBtn">Complete Week ${state.wk}</button>`;
   wkbar.querySelector('#wkBtn').addEventListener('click',()=> finwk? showWeekSummary(state.wk,finwk) : completeWeek());
   list.appendChild(wkbar);
+
+  // share-week-as-image bar
+  const shareBar=el('div','wkbar');
+  shareBar.innerHTML=`<button class="sharebtn" id="shareWkBtn">⤓ Share this week as image</button>`;
+  shareBar.querySelector('#shareWkBtn').addEventListener('click',async e=>{ const b=e.currentTarget; if(b.disabled) return;
+    const orig=b.textContent; b.disabled=true; b.textContent='Rendering…';
+    try{ await exportWeekImage(); }catch(_){ alert('Sorry — could not create the image.'); }
+    finally{ b.disabled=false; b.textContent=orig; } });
+  list.appendChild(shareBar);
 }
 
 function refreshCounts(){
@@ -1237,7 +1246,93 @@ async function exportOverviewImage(){
   },'image/png'));
 }
 
-// ---- muscle recovery: gather finished sessions and decay fatigue over real time ----
+// Render the current week's workout (plan + what was logged) to a shareable PNG.
+async function exportWeekImage(){
+  const wk=state.wk, wkObj=DATA.weeks[wk-1]; if(!wkObj){ alert('Nothing to share for this week yet.'); return; }
+  const dayHex={mon:'#e3a857',fri:'#89b4fa',sat:'#a6e3a1',wed:'#fab387'};
+  const fullDay={mon:'MONDAY',fri:'FRIDAY',sat:'SATURDAY',wed:'WEDNESDAY'};
+  const days=[];
+  for(const dk of ['mon','fri','sat']){
+    const exs=wkObj.days[dk]||[]; if(!exs.length) continue;
+    const dm=DAYS.find(x=>x.k===dk), log=await loadDay(wk,dk);
+    const rows=exs.map((ex,i)=>{ const rec=log[i]; const t=rec&&rec.sets?topSet(parseSets(rec.sets)):null;
+      return {name:ex.ex, plan:`${ex.sets} × ${ex.reps}`, top:t}; });
+    days.push({k:dk, typ:dm.typ, rows});
+  }
+  if(!days.length){ alert('Nothing to share for this week yet.'); return; }
+  const wed=await loadWed(wk); const wedGroups=(wed.groups&&wed.groups.length)?wed.groups.slice():null;
+
+  try{ await Promise.all([
+    document.fonts.load('700 22px "Space Mono"'), document.fonts.load('700 14px "Space Mono"'),
+    document.fonts.load('400 13px "JetBrains Mono"'), document.fonts.load('600 15px "JetBrains Mono"'),
+  ]); await document.fonts.ready; }catch(_){}
+
+  const DISP='"Space Mono",monospace', BODY='"JetBrains Mono",monospace';
+  const C={bg:'#16161a', text:'#e9e9eb', sub:'#a8a8ad', sub1:'#c8c8cc', ovl1:'#8a8a90', ovl:'#6f6f76',
+    green:'#a6e3a1', amber:'#e3a857', line:'rgba(255,255,255,.07)'};
+  const W=760, padX=36, scale=2;
+  const headerH=120, dayHeadH=46, rowH=44, dayGap=14, footerH=54;
+  let bodyH=0; days.forEach(d=>{ bodyH+=dayHeadH + d.rows.length*rowH + dayGap; });
+  if(wedGroups) bodyH+=dayHeadH + 30 + dayGap;
+  const H=headerH+bodyH+footerH;
+
+  const cv=document.createElement('canvas'); cv.width=W*scale; cv.height=H*scale;
+  const ctx=cv.getContext('2d'); ctx.scale(scale,scale); ctx.textBaseline='alphabetic';
+  const setLS=v=>{ try{ ctx.letterSpacing=v; }catch(_){ } };
+  const fit=(s,maxW)=>{ if(ctx.measureText(s).width<=maxW) return s; let t=s;
+    while(t.length>1 && ctx.measureText(t+'…').width>maxW) t=t.slice(0,-1); return t+'…'; };
+
+  ctx.fillStyle=C.bg; ctx.fillRect(0,0,W,H);
+  // header
+  setLS('0.5px'); ctx.font='700 22px '+DISP; ctx.textAlign='left';
+  ctx.fillStyle=C.text; ctx.fillText('Landi',padX,48);
+  const lw=ctx.measureText('Landi').width; ctx.fillStyle=C.ovl1; ctx.fillText('/lifts',padX+lw,48); setLS('0px');
+  ctx.font='700 14px '+DISP; setLS('1px'); ctx.fillStyle=C.amber;
+  ctx.fillText(`WEEK ${wk} · ${(wkObj.block||'').toUpperCase()}${wkObj.deload?' · DELOAD':''}`,padX,76); setLS('0px');
+  ctx.font='12px '+BODY; ctx.fillStyle=C.ovl1; ctx.fillText('This week’s workout',padX,98);
+  ctx.textAlign='right';
+  const who=LL_USER?LL_USER.charAt(0).toUpperCase()+LL_USER.slice(1):'';
+  let dstr=''; try{ dstr=new Date().toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}); }catch(_){}
+  if(who){ ctx.font='700 14px '+DISP; ctx.fillStyle=C.sub1; ctx.fillText(who,W-padX,48); }
+  ctx.font='12px '+BODY; ctx.fillStyle=C.sub; ctx.fillText(dstr,W-padX,who?70:48);
+  ctx.textAlign='left';
+  ctx.strokeStyle=C.line; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(padX,headerH-14); ctx.lineTo(W-padX,headerH-14); ctx.stroke();
+
+  let y=headerH;
+  const drawDayHead=(k,typ)=>{ const col=dayHex[k];
+    ctx.fillStyle=col; ctx.beginPath(); ctx.roundRect(padX,y+dayHeadH/2-8,11,16,3); ctx.fill();
+    ctx.font='700 14px '+DISP; setLS('.5px'); ctx.fillStyle=col; ctx.fillText(fullDay[k],padX+22,y+dayHeadH/2+1); setLS('0px');
+    ctx.font='12px '+BODY; ctx.fillStyle=C.ovl1; ctx.textAlign='right'; ctx.fillText(typ,W-padX,y+dayHeadH/2+1); ctx.textAlign='left';
+    y+=dayHeadH; };
+  days.forEach(d=>{
+    drawDayHead(d.k, d.typ);
+    d.rows.forEach(r=>{ const top=y+rowH/2;
+      ctx.font='600 15px '+BODY; ctx.fillStyle=C.text; ctx.textAlign='left';
+      ctx.fillText(fit(r.name, W-2*padX-130), padX, top-3);
+      if(r.top){ ctx.font='12px '+BODY; ctx.fillStyle=C.green; ctx.fillText('✓ '+fmtSet(r.top),padX,top+15); }
+      ctx.font='13px '+BODY; ctx.fillStyle=C.sub1; ctx.textAlign='right'; ctx.fillText(r.plan,W-padX,top+1); ctx.textAlign='left';
+      ctx.strokeStyle=C.line; ctx.beginPath(); ctx.moveTo(padX,y+rowH); ctx.lineTo(W-padX,y+rowH); ctx.stroke();
+      y+=rowH; });
+    y+=dayGap;
+  });
+  if(wedGroups){
+    drawDayHead('wed','Coach Danny');
+    ctx.font='13px '+BODY; ctx.fillStyle=C.sub1; ctx.fillText(fit(wedGroups.join('  ·  '), W-2*padX), padX, y+18);
+    y+=30+dayGap;
+  }
+  ctx.textAlign='center'; ctx.font='11px '+BODY; ctx.fillStyle=C.ovl;
+  ctx.fillText('Landi / lifts · Anything worth doing is worth overdoing.', W/2, H-22); ctx.textAlign='left';
+
+  const fname=`landi-lifts-week-${wk}-${(dstr||'').replace(/[^0-9a-z]+/gi,'-').toLowerCase()}.png`;
+  await new Promise(res=>cv.toBlob(async blob=>{
+    if(!blob){ res(); return; }
+    try{ const file=new File([blob],fname,{type:'image/png'});
+      if(navigator.canShare && navigator.canShare({files:[file]})){ await navigator.share({files:[file], title:`Landi Lifts — Week ${wk}`}); res(); return; }
+    }catch(_){ }
+    const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=fname;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),5000); res();
+  },'image/png'));
+}
 async function recoveryData(){
   const now=Date.now(); const sessions=[];
   for(let wk=1;wk<=12;wk++){
