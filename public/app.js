@@ -521,9 +521,12 @@ async function renderList(){
   const log=await loadDay(state.wk,state.day);
   // previous week same day for overload hints
   let prevLog={}, prevExs=[];
-  if(state.wk>1){ prevExs=DATA.weeks[state.wk-2].days[state.day]; prevLog=await loadDay(state.wk-1,state.day); }
+  if(state.wk>1){ prevExs=(DATA.weeks[state.wk-2].days[state.day])||[]; prevLog=await loadDay(state.wk-1,state.day); }
   const prevByName={};
   prevExs.forEach((pe,pi)=>{ if(prevLog[pi]) prevByName[pe.ex]=prevLog[pi].sets||[]; });
+  // fall back to the last logged sets carried from a previous program cycle (e.g. fresh Week 1)
+  const baseLast=(await loadBaseline()).lastSets||{}; const carryNames=new Set();
+  exs.forEach(e=>{ if(!(prevByName[e.ex]&&prevByName[e.ex].length) && baseLast[e.ex]&&baseLast[e.ex].length){ prevByName[e.ex]=baseLast[e.ex]; carryNames.add(e.ex); } });
 
   let done=0; exs.forEach((_,i)=>{ if(log[i]&&log[i].done) done++; });
   document.getElementById('daybar').innerHTML =
@@ -560,6 +563,7 @@ async function renderList(){
       + (ex.demo ? `<a class="play" href="${ex.demo}" target="_blank" rel="noopener" aria-label="Watch demo video">▶ demo</a>` : '');
 
     const prevSets = prevByName[ex.ex]||[];
+    const refLbl = carryNames.has(ex.ex)?'last':'last wk';
     card.innerHTML=`
       <div class="chead">
         <div class="cnum">${String(idx+1).padStart(2,'0')}</div>
@@ -621,7 +625,7 @@ async function renderList(){
         const wPre=carryWeight(s);
         const rPre=repsPre(s);
         const hasVal=(sv.w&&sv.w!=='')||(sv.r&&sv.r!=='');
-        const hint=(pv&&(pv.w||pv.r))?`<span class="lasthint">last wk <b>${esc(pv.w||'–')}</b> × ${esc(pv.r||'–')}</span>`:'';
+        const hint=(pv&&(pv.w||pv.r))?`<span class="lasthint">${refLbl} <b>${esc(pv.w||'–')}</b> × ${esc(pv.r||'–')}</span>`:'';
         const clearBtn=hasVal?`<button class="setclear" aria-label="Clear this set" title="Clear this set">✕</button>`:'';
         const right=(hint||clearBtn)?`<span class="wtright">${hint}${clearBtn}</span>`:'';
         const ws=el('div','workset',`<div class="worktop"><span class="sn${last?' last':''}">Set ${s+1}</span>${last?'<span class="failpill">FAILURE</span>':''}${right}</div>`);
@@ -1862,17 +1866,21 @@ async function saveBaseline(b){ try{ await window.storage.set('bts:base:summary'
 // Summarise a set of logs (best est-1RM per movement, lifetime volume, total PRs) via a program.
 function summariseLogs(logs, program){
   const nameAt=(wk,day,idx)=>{ const w=program.weeks[wk-1]; const exs=w&&w.days[day]; const ex=exs&&exs[idx]; return ex?ex.ex:null; };
-  let volume=0; const weekBest={};
+  const dayRank={mon:0,wed:1,fri:2,sat:3};
+  let volume=0; const weekBest={}, lastSets={}, lastRank={};
   for(const k in logs){ const m=k.match(/^bts:log:w(\d+):(\w+)$/); if(!m) continue; const wk=+m[1], day=m[2], log=logs[k]||{};
     for(const idxs in log){ const i=+idxs, rec=log[i]; if(!rec||!rec.sets) continue; const name=nameAt(wk,day,i);
-      let best=0; rec.sets.forEach(st=>{ const w=parseFloat(st.w), r=parseFloat(st.r); if(w>0&&r>0){ volume+=w*r; const e=w*(1+r/30); if(e>best) best=e; } });
-      if(name&&best>0){ const kk=wk+'|'+name; if(best>(weekBest[kk]||0)) weekBest[kk]=best; } }
+      let best=0, any=false; rec.sets.forEach(st=>{ const w=parseFloat(st.w), r=parseFloat(st.r); if(w>0&&r>0){ volume+=w*r; any=true; const e=w*(1+r/30); if(e>best) best=e; } });
+      if(name&&best>0){ const kk=wk+'|'+name; if(best>(weekBest[kk]||0)) weekBest[kk]=best; }
+      if(name&&any){ const rank=wk*10+(dayRank[day]||0);   // remember the most recent sets for each lift
+        if(rank>=(lastRank[name]||-1)){ lastRank[name]=rank;
+          lastSets[name]=rec.sets.filter(st=>{ const w=parseFloat(st.w),r=parseFloat(st.r); return w>0||r>0; }).map(st=>({w:st.w,r:st.r})); } } }
   }
   const exBest={}; let prs=0; const run={};
   Object.keys(weekBest).map(kk=>{ const i=kk.indexOf('|'); return {wk:+kk.slice(0,i), name:kk.slice(i+1), e:weekBest[kk]}; })
     .sort((a,b)=>a.wk-b.wk)
     .forEach(({name,e})=>{ if(run[name]===undefined) run[name]=e; else if(e>run[name]+0.001){ run[name]=e; prs++; } exBest[name]=Math.max(exBest[name]||0,e); });
-  return {exBest, volume:Math.round(volume), prs};
+  return {exBest, volume:Math.round(volume), prs, lastSets};
 }
 // Archive current logs, fold their stats into the carried baseline, clear, reset to Week 1.
 async function startNewProgram(useLegacy){
@@ -1882,6 +1890,7 @@ async function startNewProgram(useLegacy){
   const sum=summariseLogs(logs, program);
   const base=await loadBaseline();
   for(const n in sum.exBest){ if(sum.exBest[n]>(base.exBest[n]||0)) base.exBest[n]=sum.exBest[n]; }
+  base.lastSets=base.lastSets||{}; for(const n in sum.lastSets) base.lastSets[n]=sum.lastSets[n];  // newest reference per lift
   base.volume=(base.volume||0)+sum.volume; base.prs=(base.prs||0)+sum.prs; base.cycles=(base.cycles||0)+1;
   try{ base.archivedAt=new Date().toISOString(); }catch(_){}
   // keep a raw safety copy of everything we're about to clear
