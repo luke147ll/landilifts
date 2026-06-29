@@ -25,20 +25,23 @@ if (typeof window.storage === "undefined") {
   setTimeout(()=>{ sp.classList.add('hide'); setTimeout(()=>sp.remove(),650); }, 4700);
 })();
 
-const DATA = window.PROGRAM;
+// Program is per-profile (Luke / Walt). Picked by signed-in user; rebuilt on switch.
+function earlyUser(){ try{ const u=localStorage.getItem('ll:user'); return (u==='luke'||u==='walt')?u:null; }catch(_){ return null; } }
+function pickProgram(u){ return (window.PROGRAMS&&window.PROGRAMS[u])||window.PROGRAM; }
+let DATA = pickProgram(earlyUser());
 const EX_GROUP = window.EX_GROUP;
+const PDAYS = ['mon','fri'];   // the two training days of the current program
 
 const DAYS = [
-  {k:'mon', dow:'MON', typ:'Full Body · Strength', tab:'Full Body', color:'var(--mon)'},
-  {k:'wed', dow:'WED', typ:'Coach Danny',          tab:'Coach',     color:'var(--peach)'},
-  {k:'fri', dow:'FRI', typ:'Upper · Hypertrophy',  tab:'Upper',     color:'var(--fri)'},
-  {k:'sat', dow:'SAT', typ:'Lower · Hypertrophy',  tab:'Lower',     color:'var(--sat)'},
+  {k:'mon', dow:'MON', typ:'Full Body A',  tab:'Full Body A', color:'var(--mon)'},
+  {k:'wed', dow:'WED', typ:'Coach Danny',  tab:'Coach',       color:'var(--peach)'},
+  {k:'fri', dow:'FRI', typ:'Full Body B',  tab:'Full Body B', color:'var(--fri)'},
 ];
 // Wednesday (Coach Danny) is a free-form coach session — just tag the muscle groups worked.
 const WED_GROUPS=['Chest','Back','Shoulders','Arms','Legs','Glutes','Core','Cardio'];
 let state = {wk:1, day:'mon'};
 try{ const _w=+localStorage.getItem('ll:wk'); if(_w>=1&&_w<=12) state.wk=_w;
-  const _d=localStorage.getItem('ll:day'); if(['mon','wed','fri','sat'].includes(_d)) state.day=_d; }catch(_){}
+  const _d=localStorage.getItem('ll:day'); if(['mon','wed','fri'].includes(_d)) state.day=_d; }catch(_){}
 function persistPos(){ try{ localStorage.setItem('ll:wk',String(state.wk)); localStorage.setItem('ll:day',state.day); }catch(_){} }
 let dayCache = {};   // key -> {exIdx:{done,sets:[{w,r}]}}
 
@@ -130,6 +133,7 @@ function liveRec(idx){ const k=keyFor(state.wk,state.day); const dc=dayCache[k]|
 let PR_BASE={}, prFiredSession=new Set(), toastTimer=null, afterEdit=null;
 async function computePRBase(){
   PR_BASE={};
+  const base=await loadBaseline(); for(const n in base.exBest) PR_BASE[n]=base.exBest[n];  // carry past bests
   let all={}; try{ all=await gatherAll(); }catch(_){}
   for(const k in all){ if(!k.startsWith('bts:log:')) continue; const m=k.match(/w(\d+):(\w+)/); if(!m) continue;
     const exs=(DATA.weeks[+m[1]-1]&&DATA.weeks[+m[1]-1].days[m[2]])||[]; const log=all[k]||{};
@@ -233,11 +237,12 @@ function medalMarkup(glyph, tier, size){
 // One pass over all logged data: weekly PRs + this-week stats + all-time totals.
 async function progStats(){
   let all={}; try{ all=await gatherAll(); }catch(_){}
-  const exBest={};                 // exercise -> best est. 1RM so far (chronological)
+  const base=await loadBaseline();                 // carried-over history from past programs
+  const exBest={}; for(const n in base.exBest) exBest[n]=base.exBest[n];  // seed PR baseline
   const prByWeek={}, volByWeek={}, setsByWeek={}, daysByWeek={}, weekHasLog={};
   for(let wk=1; wk<=12; wk++){
     const prHits=new Set();
-    for(const day of ['mon','fri','sat']){
+    for(const day of PDAYS){
       const log=all[keyFor(wk,day)]; if(!log) continue;
       const exs=(DATA.weeks[wk-1]&&DATA.weeks[wk-1].days[day])||[];
       exs.forEach((ex,i)=>{ const rec=log[i]; if(!rec) return; let dayHas=false;
@@ -261,7 +266,7 @@ async function progStats(){
   return { latestWk, streak,
     prThis:prByWeek[latestWk]||0, volThis:Math.round(volByWeek[latestWk]||0),
     setsThis:setsByWeek[latestWk]||0, daysThis:(daysByWeek[latestWk]||new Set()).size,
-    totalPRs:sum(prByWeek), totalVol:Math.round(sum(volByWeek)) };
+    totalPRs:sum(prByWeek)+(base.prs||0), totalVol:Math.round(sum(volByWeek))+(base.volume||0) };
 }
 async function renderShelf(){
   const host=document.getElementById('shelf'); if(!host) return;
@@ -278,7 +283,7 @@ async function renderShelf(){
     {big:s.prThis, lbl:'PRs this week', cls:'pr'},
     {big:s.volThis.toLocaleString(), lbl:'Volume (lb)', cls:''},
     {big:s.setsThis, lbl:'Sets', cls:''},
-    {big:s.daysThis+'/3', lbl:'Days trained', cls:''},
+    {big:s.daysThis+'/'+PDAYS.length, lbl:'Days trained', cls:''},
   ].map(t=>`<div class="stat ${t.cls}"><div class="statbig">${t.big}</div><div class="statlbl">${t.lbl}</div></div>`).join('');
   host.innerHTML=`<div class="statcard">`
     +`<div class="stathead"><span class="statttl">This week</span><span class="statwk">Week ${s.latestWk}</span></div>`
@@ -294,7 +299,7 @@ async function loadFin(wk,day){ const k='bts:fin:w'+wk+':'+day; if(k in finCache
   let v=null; try{ const r=await window.storage.get(k,false); if(r&&r.value) v=JSON.parse(r.value); }catch(_){}
   finCache[k]=v; return v; }
 async function daySummary(wk,day){
-  const exs=DATA.weeks[wk-1].days[day]; const log=await loadDay(wk,day);
+  const exs=(DATA.weeks[wk-1]&&DATA.weeks[wk-1].days[day])||[]; const log=await loadDay(wk,day);
   let done=0, sets=0, vol=0, bestE=0, bestEx='';
   exs.forEach((ex,i)=>{ const rec=log[i]; if(!rec) return; if(rec.done) done++;
     (rec.sets||[]).forEach(st=>{ const w=parseFloat(st.w), r=parseFloat(st.r); if(w>0&&r>0){
@@ -374,7 +379,7 @@ async function loadFinWk(wk){ const k='bts:finwk:w'+wk; if(k in finWkCache) retu
   finWkCache[k]=v; return v; }
 async function weekSummary(wk){
   let days=0, doneMv=0, totalMv=0, sets=0, vol=0, bestE=0, bestEx='';
-  for(const day of ['mon','fri','sat']){
+  for(const day of PDAYS){
     const s=await daySummary(wk,day);
     totalMv+=s.total; doneMv+=s.done; sets+=s.sets; vol+=s.vol;
     if(s.bestE>bestE){ bestE=s.bestE; bestEx=s.bestEx; }
@@ -396,7 +401,7 @@ function showWeekSummary(wk, fin){
     sheet.innerHTML=`<div class="grab"></div><h2>Week ${wk} complete</h2>`
       +`<p>${esc(w.block)}${w.deload?' · Deload':(w.vol?' · '+esc(w.vol):'')}${fin&&fin.at?` · closed ${new Date(fin.at).toLocaleDateString()}`:''}</p>`
       +`<div class="summgrid">`
-      +`<div class="scell"><div class="sv">${s.days}/3</div><div class="sl">days finished</div></div>`
+      +`<div class="scell"><div class="sv">${s.days}/${PDAYS.length}</div><div class="sl">days finished</div></div>`
       +`<div class="scell"><div class="sv">${s.doneMv}/${s.totalMv}</div><div class="sl">movements done</div></div>`
       +`<div class="scell"><div class="sv">${s.sets}</div><div class="sl">sets logged</div></div>`
       +`<div class="scell"><div class="sv">${s.vol.toLocaleString()}</div><div class="sl">lb volume</div></div></div>`
@@ -432,7 +437,7 @@ async function renderTabs(){
       const wed=await loadWed(state.wk); const n=wed.groups.length; const fin=await loadFin(state.wk,'wed');
       el.innerHTML=`${fin?'<div class="tfin">✓</div>':''}<div class="ring">${n||''}</div><div class="dow">${d.dow}</div><div class="typ">${d.tab}</div>`;
     } else {
-      const exs=curWeek().days[d.k];
+      const exs=curWeek().days[d.k]||[];
       const log=await loadDay(state.wk,d.k);
       const fin=await loadFin(state.wk,d.k);
       let done=0; exs.forEach((_,i)=>{ if(log[i]&&log[i].done) done++; });
@@ -746,15 +751,14 @@ sheet.addEventListener('click',e=>{ if(e.target.classList.contains('grab')) scri
 function guideHTML(){ return `
   <div class="grab"></div>
   <h2>How this build works</h2>
-  <p>Your 5-day program, folded into <b>3 days</b> that fit Mon / Fri / Sat. Wednesday stays open for your trainer. Every exercise keeps its original sets, reps, RPE, rest and technique — only the day grouping changed.</p>
+  <p>A <b>2-day full-body</b> program on Mon / Fri. Wednesday stays open for your trainer. ${LL_USER==='walt'?'This is your shoulder-safe version — a few presses and raises are swapped for joint-friendly cable variants.':'Each profile has its own program — Walt runs shoulder-safe swaps.'}</p>
   <h3>Weekly schedule</h3>
-  <div class="schrow"><div class="d" style="color:var(--mon)">Monday</div><div>Full Body · Strength (program)</div></div>
+  <div class="schrow"><div class="d" style="color:var(--mon)">Monday</div><div>Full Body A (program)</div></div>
   <div class="schrow rest"><div class="d">Tuesday</div><div>Rest</div></div>
-  <div class="schrow"><div class="d" style="color:var(--peach)">Wednesday</div><div>Coach Danny — tag the muscle groups worked</div></div>
+  <div class="schrow"><div class="d" style="color:var(--peach)">Wednesday</div><div>Coach Danny — tag the muscle groups worked (optional)</div></div>
   <div class="schrow rest"><div class="d">Thursday</div><div>Rest</div></div>
-  <div class="schrow"><div class="d" style="color:var(--fri)">Friday</div><div>Upper · Hypertrophy (program)</div></div>
-  <div class="schrow"><div class="d" style="color:var(--sat)">Saturday</div><div>Lower · Hypertrophy (program)</div></div>
-  <div class="schrow rest"><div class="d">Sunday</div><div>Rest</div></div>
+  <div class="schrow"><div class="d" style="color:var(--fri)">Friday</div><div>Full Body B (program)</div></div>
+  <div class="schrow rest"><div class="d">Sat / Sun</div><div>Rest</div></div>
   <h3>The blocks</h3>
   <p><b>Foundation (Wk 1–5):</b> Week 1 is an intro/deload — leave reps in the tank, no failure. Weeks 2–5 hold steady volume with the last set to failure.</p>
   <p><b>Ramping (Wk 6–12):</b> New exercises. Week 6 is an intro/deload, then volume climbs at Wk 7–8, 9–10, 11–12. After Week 12, loop back to Week 1 as your next deload.</p>
@@ -782,8 +786,11 @@ function guideHTML(){ return `
   <button class="databtn" id="expCsv">⬇  Export training log (.csv)</button>
   <button class="databtn" id="impBtn">↺  Restore from a backup file</button>
   <input type="file" id="impFile" accept="application/json,.json" style="display:none">
+  <h3>Start a new program cycle</h3>
+  <p>Finished a 12-week run? Archive this cycle and restart at Week 1. Your lifetime volume, PR count and per-lift bests carry over (new PRs still beat your past bests); the old logs are kept as a backup.</p>
+  <button class="databtn" id="newProgBtn">↻  Archive cycle &amp; restart at Week 1</button>
   <button class="dangerbtn" id="resetBtn">Reset all logged data</button>
-  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.<br><b style="color:var(--sub1)">build 20260620l</b></div>`;
+  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.<br><b style="color:var(--sub1)">build 20260623i</b></div>`;
 }
 function download(filename, text, mime){
   try{ const blob=new Blob([text],{type:mime||'text/plain'}); const url=URL.createObjectURL(blob);
@@ -795,7 +802,7 @@ async function gatherAll(){
   try{ const r=await window.storage.list('bts:', false); const keys=(r&&r.keys)||[];
     for(const k of keys){ try{ const v=await window.storage.get(k,false); if(v&&v.value!=null) out[k]=JSON.parse(v.value); }catch(_){} }
   }catch(e){
-    for(let wk=1;wk<=12;wk++) for(const d of ['mon','fri','sat']){ const k=keyFor(wk,d);
+    for(let wk=1;wk<=12;wk++) for(const d of ['mon','wed','fri','sat']){ const k=keyFor(wk,d);
       try{ const v=await window.storage.get(k,false); if(v&&v.value!=null) out[k]=JSON.parse(v.value);}catch(_){} }
   }
   return out;
@@ -814,7 +821,7 @@ async function exportJSON(){
 }
 async function exportCSV(){
   const rows=[['Week','Day','Exercise','Set','Weight','Reps']];
-  for(const w of DATA.weeks){ for(const dk of ['mon','fri','sat']){ const log=await loadDay(w.n,dk);
+  for(const w of DATA.weeks){ for(const dk of PDAYS){ const log=await loadDay(w.n,dk);
     w.days[dk].forEach((ex,i)=>{ const rec=log[i]; if(rec&&rec.sets) rec.sets.forEach((s,si)=>{
       if(s&&((s.w&&s.w!=='')||(s.r&&s.r!==''))) rows.push([w.n, dk.toUpperCase(), ex.ex, si+1, s.w||'', s.r||'']); }); }); } }
   const csv=rows.map(r=>r.map(c=>{ c=String(c); return /[",\n]/.test(c)?'"'+c.replace(/"/g,'""')+'"':c; }).join(',')).join('\n');
@@ -836,8 +843,13 @@ sheet.addEventListener('click',async(e)=>{
   if(id==='resetBtn'){
     if(!confirm('Erase every logged set across all 12 weeks? This cannot be undone.')) return;
     try{ const r=await window.storage.list('bts:', false); for(const k of ((r&&r.keys)||[])){ try{ await window.storage.delete(k,false);}catch(_){} } }
-    catch(_){ for(let wk=1;wk<=12;wk++) for(const d of ['mon','fri','sat']){ try{ await window.storage.delete(keyFor(wk,d),false);}catch(__){} } }
+    catch(_){ for(let wk=1;wk<=12;wk++) for(const d of ['mon','wed','fri','sat']){ try{ await window.storage.delete(keyFor(wk,d),false);}catch(__){} } }
     dayCache={}; finCache={}; finWkCache={}; wedCache={}; prFiredSession.clear(); scheduleCloudPush(); scrim.classList.remove('show'); await renderAll(); await computePRBase(); renderShelf();
+  } else if(id==='newProgBtn'){
+    if(!confirm('Archive this cycle and restart at Week 1? Your stats and PR bests carry over; old logs are kept as a backup.')) return;
+    const res=await startNewProgram(false); scrim.classList.remove('show');
+    try{ if(document.getElementById('bodyView').style.display!=='none'){ await renderProg(); await renderShelf(); await renderRecovery(); } }catch(_){}
+    showProgramSwitched(res);
   } else if(id==='expJson'){ exportJSON(); }
   else if(id==='expCsv'){ exportCSV(); }
   else if(id==='impBtn'){ const f=document.getElementById('impFile'); if(f) f.click(); }
@@ -861,10 +873,17 @@ const GROUP_ORDER=['Chest','Back','Shoulders','Arms','Legs','Core'];
 let progState={ sel:{type:'all', name:'All movements'}, metric:'1rm' };
 
 const EX_INDEX={}, GROUP_INDEX={};
-DATA.weeks.forEach(w=>{ ['mon','fri','sat'].forEach(dk=>{ w.days[dk].forEach((ex,i)=>{
-  (EX_INDEX[ex.ex]||(EX_INDEX[ex.ex]=[])).push({wk:w.n, day:dk, exIdx:i});
-  const g=EX_GROUP[ex.ex]; if(g&&g!=='Other'){ (GROUP_INDEX[g]||(GROUP_INDEX[g]=[])).push({wk:w.n, day:dk, exIdx:i}); }
-});});});
+function buildIndexes(){
+  for(const k in EX_INDEX) delete EX_INDEX[k];
+  for(const k in GROUP_INDEX) delete GROUP_INDEX[k];
+  DATA.weeks.forEach(w=>{ PDAYS.forEach(dk=>{ (w.days[dk]||[]).forEach((ex,i)=>{
+    (EX_INDEX[ex.ex]||(EX_INDEX[ex.ex]=[])).push({wk:w.n, day:dk, exIdx:i});
+    const g=EX_GROUP[ex.ex]; if(g&&g!=='Other'){ (GROUP_INDEX[g]||(GROUP_INDEX[g]=[])).push({wk:w.n, day:dk, exIdx:i}); }
+  });});});
+}
+buildIndexes();
+// switch the active program (per profile) and rebuild the derived indexes in place
+function setProgram(user){ DATA=pickProgram(user); buildIndexes(); }
 
 /* ===================== muscle recovery tracker ===================== */
 // Ordered list of tracked muscles (front + back).
@@ -910,6 +929,17 @@ const EX_MUSCLE={
   'Smith Machine Static Lunge w/ Elevated Front Foot':{Quads:1,Glutes:.75,Adductors:.25,Obliques:.25},
   'Standing Calf Raise':{Calves:1},
   'Walking Lunge':{Quads:1,Glutes:.75,Adductors:.25,Obliques:.25},
+  // new Mon/Fri program movements
+  'Low-Incline Cable Press':{Chest:1,Triceps:.5,Shoulders:.5},
+  'Incline Cable Press':{Chest:1,Triceps:.5,Shoulders:.5},
+  'Low-to-High Cable Crossover':{Chest:1},
+  'High-to-Low Cable Crossover':{Chest:1},
+  'Face Pull':{'Rear Delts':1,Back:.5},
+  'Cable Triceps Pressdown':{Triceps:1},
+  'Lying Leg Curl':{Hamstrings:1},
+  'Seated Machine Row':{Back:1,'Rear Delts':.5,Biceps:.5,Forearms:.25},
+  'Leg Press Calf Press':{Calves:1},
+  'Roman Chair Leg Raise':{'Lower Abs':1,'Upper Abs':.5,Obliques:.25},
 };
 // Coarse Wednesday tags -> muscles (each tagged group counts as a moderate hit).
 const WEDGROUP_MUSCLE={
@@ -950,7 +980,7 @@ async function groupPoints(){
 // whole-body weekly volume = w*r summed across every logged movement (all 3 program days)
 async function fullPoints(){
   const perWeek={}, sched={};
-  for(let wk=1;wk<=12;wk++){ for(const day of ['mon','fri','sat']){
+  for(let wk=1;wk<=12;wk++){ for(const day of PDAYS){
     const exs=DATA.weeks[wk-1].days[day]; const log=await loadDay(wk,day);
     exs.forEach((ex,i)=>{ (sched[wk]||(sched[wk]=new Set())).add(ex.ex);
       const rec=log[i]; if(!rec||!rec.sets) return; const v=volOf(parseSets(rec.sets));
@@ -1078,8 +1108,8 @@ function ovColumn(pt){
 // Every movement's latest logged week vs the one before — the at-a-glance progress board.
 async function overviewData(){
   const m=PMETRICS[progState.metric];
-  const order=['mon','fri','sat'], dayLabel={mon:'Monday',fri:'Friday',sat:'Saturday'};
-  const byDay={mon:[],fri:[],sat:[]};
+  const order=PDAYS, dayLabel={mon:'Monday',fri:'Friday'};
+  const byDay={mon:[],fri:[]};
   for(const day of order){
     const names=[], seen=new Set();
     for(let wk=1;wk<=12;wk++){ const exs=(DATA.weeks[wk-1]&&DATA.weeks[wk-1].days[day])||[];
@@ -1252,7 +1282,7 @@ async function exportWeekImage(){
   const dayHex={mon:'#e3a857',fri:'#89b4fa',sat:'#a6e3a1',wed:'#fab387'};
   const fullDay={mon:'MONDAY',fri:'FRIDAY',sat:'SATURDAY',wed:'WEDNESDAY'};
   const days=[];
-  for(const dk of ['mon','fri','sat']){
+  for(const dk of PDAYS){
     const exs=wkObj.days[dk]||[]; if(!exs.length) continue;
     const dm=DAYS.find(x=>x.k===dk), log=await loadDay(wk,dk);
     const rows=exs.map((ex,i)=>{ const rec=log[i]; let t=null;
@@ -1342,7 +1372,7 @@ async function exportWeekImage(){
 async function recoveryData(){
   const now=Date.now(); const sessions=[];
   for(let wk=1;wk<=12;wk++){
-    for(const day of ['mon','fri','sat']){
+    for(const day of PDAYS){
       const fin=await loadFin(wk,day); if(!fin||!fin.at) continue;
       const at=Date.parse(fin.at); if(isNaN(at)) continue;
       const exs=(DATA.weeks[wk-1]&&DATA.weeks[wk-1].days[day])||[]; const log=await loadDay(wk,day);
@@ -1506,7 +1536,7 @@ async function trainingBalanceData(){
   const add=(wk,m,amt,name)=>{ (perWeek[wk]||(perWeek[wk]={}))[m]=((perWeek[wk]||{})[m]||0)+amt;
     const mp=(movesPerWeek[wk]||(movesPerWeek[wk]={})); (mp[m]||(mp[m]={}))[name]=((mp[m]||{})[name]||0)+amt; };
   for(let wk=1;wk<=12;wk++){
-    for(const day of ['mon','fri','sat']){
+    for(const day of PDAYS){
       const log=await loadDay(wk,day); const exs=DATA.weeks[wk-1].days[day];
       exs.forEach((ex,i)=>{ const map=EX_MUSCLE[ex.ex]; if(!map) return; const rec=log[i]; if(!rec||!rec.sets) return;
         let eff=0; rec.sets.forEach(s=>{ const w=parseFloat(s.w),r=parseFloat(s.r); if(w>0&&r>0) eff++; });
@@ -1707,7 +1737,7 @@ document.getElementById('exSel').onclick=async()=>{
   for(const [bn,wk] of [['Foundation',1],['Ramping',6]]){
     html+=`<h3>${bn} block — movements</h3>`;
     const wkObj=DATA.weeks[wk-1];
-    for(const dk of ['mon','fri','sat']){
+    for(const dk of PDAYS){
       wkObj.days[dk].forEach(ex=>{ if(seen.has(ex.ex)) return; seen.add(ex.ex);
         html+=`<button class="mopt exopt" data-ex="${ex.ex.replace(/"/g,'&quot;')}">${ex.ex}<span>${dot(data.has(ex.ex))}${dk.toUpperCase()}</span></button>`; });
     }
@@ -1823,9 +1853,74 @@ function updateUserChip(){
 function showSignin(){ document.getElementById('signin').classList.add('show'); }
 function hideSignin(){ document.getElementById('signin').classList.remove('show'); }
 
+/* ===== program cycles: archive old logs, carry stat baselines, start fresh ===== */
+async function loadBaseline(){
+  try{ const r=await window.storage.get('bts:base:summary',false); if(r&&r.value){ const o=JSON.parse(r.value); o.exBest=o.exBest||{}; return o; } }catch(_){}
+  return {exBest:{}, volume:0, prs:0, cycles:0};
+}
+async function saveBaseline(b){ try{ await window.storage.set('bts:base:summary', JSON.stringify(b), false); }catch(_){} }
+// Summarise a set of logs (best est-1RM per movement, lifetime volume, total PRs) via a program.
+function summariseLogs(logs, program){
+  const nameAt=(wk,day,idx)=>{ const w=program.weeks[wk-1]; const exs=w&&w.days[day]; const ex=exs&&exs[idx]; return ex?ex.ex:null; };
+  let volume=0; const weekBest={};
+  for(const k in logs){ const m=k.match(/^bts:log:w(\d+):(\w+)$/); if(!m) continue; const wk=+m[1], day=m[2], log=logs[k]||{};
+    for(const idxs in log){ const i=+idxs, rec=log[i]; if(!rec||!rec.sets) continue; const name=nameAt(wk,day,i);
+      let best=0; rec.sets.forEach(st=>{ const w=parseFloat(st.w), r=parseFloat(st.r); if(w>0&&r>0){ volume+=w*r; const e=w*(1+r/30); if(e>best) best=e; } });
+      if(name&&best>0){ const kk=wk+'|'+name; if(best>(weekBest[kk]||0)) weekBest[kk]=best; } }
+  }
+  const exBest={}; let prs=0; const run={};
+  Object.keys(weekBest).map(kk=>{ const i=kk.indexOf('|'); return {wk:+kk.slice(0,i), name:kk.slice(i+1), e:weekBest[kk]}; })
+    .sort((a,b)=>a.wk-b.wk)
+    .forEach(({name,e})=>{ if(run[name]===undefined) run[name]=e; else if(e>run[name]+0.001){ run[name]=e; prs++; } exBest[name]=Math.max(exBest[name]||0,e); });
+  return {exBest, volume:Math.round(volume), prs};
+}
+// Archive current logs, fold their stats into the carried baseline, clear, reset to Week 1.
+async function startNewProgram(useLegacy){
+  const program = useLegacy && window.PROGRAM_LEGACY ? window.PROGRAM_LEGACY : DATA;
+  let all={}; try{ all=await gatherAll(); }catch(_){}
+  const logs={}; for(const k in all){ if(k.startsWith('bts:log:')) logs[k]=all[k]; }
+  const sum=summariseLogs(logs, program);
+  const base=await loadBaseline();
+  for(const n in sum.exBest){ if(sum.exBest[n]>(base.exBest[n]||0)) base.exBest[n]=sum.exBest[n]; }
+  base.volume=(base.volume||0)+sum.volume; base.prs=(base.prs||0)+sum.prs; base.cycles=(base.cycles||0)+1;
+  try{ base.archivedAt=new Date().toISOString(); }catch(_){}
+  // keep a raw safety copy of everything we're about to clear
+  const cyc=base.cycles;
+  for(const k in all){ if(/^bts:(log|fin|finwk|wed):/.test(k)){ try{ await window.storage.set('bts:arch:c'+cyc+':'+k, JSON.stringify(all[k]), false); }catch(_){} } }
+  await saveBaseline(base);
+  for(const k of await localKeys()){ if(/^bts:(log|fin|finwk|wed):/.test(k)){ try{ await window.storage.delete(k,false); }catch(_){} } }
+  try{ await window.storage.set('bts:prog:v2','1',false); }catch(_){}
+  state.wk=1; state.day='mon'; persistPos();
+  dayCache={}; finCache={}; finWkCache={}; wedCache={}; prFiredSession.clear();
+  scheduleCloudPush();
+  await renderAll(); await computePRBase();
+  return {carriedVol:base.volume, carriedPRs:base.prs};
+}
+function showProgramSwitched(res){
+  sheet.innerHTML=`<div class="grab"></div><h2>New program started 💪</h2>`
+    +`<p>You're on the new <b>Mon / Fri full-body</b> program, fresh at <b>Week 1</b>. Saturday is gone; Wednesday (Coach Danny) is still there if you want it.</p>`
+    +`<p style="margin-top:10px">Your history carried over — <b>${(res.carriedVol||0).toLocaleString()} lb</b> lifetime volume and <b>${res.carriedPRs||0}</b> PRs — so new lifts are still measured against your past bests. Your old logs are archived as a backup.</p>`
+    +`<button class="databtn" id="summClose" style="margin-top:16px">Let’s go</button>`;
+  scrim.classList.add('show');
+}
+async function checkProgramMigration(synced){
+  if(!LL_USER) return false;
+  let v2=null; try{ const r=await window.storage.get('bts:prog:v2',false); v2=r&&r.value; }catch(_){}
+  if(v2) return false;
+  const hasData=(await localKeys()).some(k=>k.startsWith('bts:log:'));
+  if(hasData){ // existing data from the old 3-day program → migrate, carrying stats
+    const res=await startNewProgram(true); showProgramSwitched(res); return true; }
+  // only mark a confirmed-empty profile as already on the new program (avoid offline false positives)
+  if(synced){ try{ await window.storage.set('bts:prog:v2','1',false); }catch(_){} scheduleCloudPush(); }
+  return false;
+}
+
 async function bootSync(){
-  if(isDirty()) await flushCloud();   // unpushed local work wins — push it, don't clobber
-  else await cloudPull();             // get latest from the cloud
+  let synced=false;
+  if(isDirty()){ await flushCloud(); synced=true; }  // unpushed local work wins — push it
+  else synced=await cloudPull();                      // get latest from the cloud
+  setProgram(LL_USER);                                // load this profile's program
+  await checkProgramMigration(synced);                // one-time: archive old 3-day data, start anew
   await renderAll();
   await computePRBase();
   try{ if(document.getElementById('bodyView').style.display!=='none'){ await renderProg(); await renderShelf(); await renderRecovery(); } }catch(_){}
