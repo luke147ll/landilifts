@@ -794,7 +794,7 @@ function guideHTML(){ return `
   <p>Finished a 12-week run? Archive this cycle and restart at Week 1. Your lifetime volume, PR count and per-lift bests carry over (new PRs still beat your past bests); the old logs are kept as a backup.</p>
   <button class="databtn" id="newProgBtn">↻  Archive cycle &amp; restart at Week 1</button>
   <button class="dangerbtn" id="resetBtn">Reset all logged data</button>
-  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.<br><b style="color:var(--sub1)">build 20260623i</b></div>`;
+  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.<br><b style="color:var(--sub1)">build 20260623j</b></div>`;
 }
 function download(filename, text, mime){
   try{ const blob=new Blob([text],{type:mime||'text/plain'}); const url=URL.createObjectURL(blob);
