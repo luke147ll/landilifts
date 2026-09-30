@@ -776,6 +776,7 @@ function guideHTML(){ return `
   <div class="gl"><b>30s loaded stretch</b> — hold the stretched position under load for 30s after the last set (calves).</div>
   <h3>Warm-up each session</h3>
   <p>5–10 min light cardio + arm/leg swings, then a warm-up pyramid sized to the warm-up count on each lift (more sets = heavier ramp on big compounds).</p>
+  ${hasGymCard()?'<h3>Gym check-in</h3><button class="databtn" id="ciShow">▦  Show check-in barcode</button>':''}
   <h3>Sync &amp; account</h3>
   <p>You're signed in as <b style="color:var(--text)">${LL_USER?LL_USER.charAt(0).toUpperCase()+LL_USER.slice(1):'—'}</b>. Your logs save to the cloud automatically and load on any device when you open the app and pick your name. Tap your name in the top bar to switch between Walt and Luke.</p>
   <h3>Backup &amp; restore</h3>
@@ -788,7 +789,7 @@ function guideHTML(){ return `
   <p>Finished a 12-week run? Archive this cycle and restart at Week 1. Your lifetime volume, PR count and per-lift bests carry over (new PRs still beat your past bests); the old logs are kept as a backup.</p>
   <button class="databtn" id="newProgBtn">↻  Archive cycle &amp; restart at Week 1</button>
   <button class="dangerbtn" id="resetBtn">Reset all logged data</button>
-  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.<br><b style="color:var(--sub1)">build 20260930a</b></div>`;
+  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.<br><b style="color:var(--sub1)">build 20260930b</b></div>`;
 }
 function download(filename, text, mime){
   try{ const blob=new Blob([text],{type:mime||'text/plain'}); const url=URL.createObjectURL(blob);
@@ -843,6 +844,7 @@ sheet.addEventListener('click',async(e)=>{
     try{ const r=await window.storage.list('bts:', false); for(const k of ((r&&r.keys)||[])){ try{ await window.storage.delete(k,false);}catch(_){} } }
     catch(_){ for(let wk=1;wk<=12;wk++) for(const d of ['mon','wed','fri','sat']){ try{ await window.storage.delete(keyFor(wk,d),false);}catch(__){} } }
     dayCache={}; finCache={}; finWkCache={}; wedCache={}; prFiredSession.clear(); scheduleCloudPush(); scrim.classList.remove('show'); await renderAll(); await computePRBase(); renderShelf();
+  } else if(id==='ciShow'){ scrim.classList.remove('show'); showCheckin();
   } else if(id==='newProgBtn'){
     if(!confirm('Archive this cycle and restart at Week 1? Your stats and PR bests carry over; old logs are kept as a backup.')) return;
     const res=await startNewProgram(false); scrim.classList.remove('show');
@@ -1833,6 +1835,51 @@ async function cloudPull(){
   return true;
 }
 
+/* ===================== gym check-in barcode ===================== */
+// Per-profile gym membership cards (Code 128, as printed on the key tag).
+const GYM_CARDS={
+  luke:{code:'6779110681', addr:'555 E. Swift Creek Way · Kalispell, MT 59901', phone:'406-407-7372'},
+};
+// Code 128 bar/space width patterns, symbols 0..106 (106 = stop, 7 elements)
+const C128=('212222 222122 222221 121223 121322 131222 122213 122312 132212 221213 221312 231212 112232 122132 122231 113222 '
+ +'123122 123221 223211 221132 221231 213212 223112 312131 311222 321122 321221 312212 322112 322211 212123 212321 232121 '
+ +'111323 131123 131321 112313 132113 132311 211313 231113 231311 112133 112331 132131 113123 113321 133121 313121 211331 '
+ +'231131 213113 213311 213131 311123 311321 331121 312113 312311 332111 314111 221411 431111 111224 111422 121124 121421 '
+ +'141122 141221 112214 112412 122114 122411 142112 142211 241211 221114 413111 241112 134111 111242 121142 121241 114212 '
+ +'124112 124211 411212 421112 421211 212141 214121 412121 111143 111341 131141 114113 114311 411113 411311 113141 114131 '
+ +'311141 411131 211412 211214 211232 2331112').split(' ');
+// Encode a string as Code 128 (set C for even-length digits, else set B) -> symbol values incl. start/check/stop
+function code128Values(s){
+  let vals;
+  if(/^\d+$/.test(s)&&s.length%2===0){ vals=[105]; for(let i=0;i<s.length;i+=2) vals.push(+s.slice(i,i+2)); }
+  else { vals=[104]; for(const ch of s) vals.push(ch.charCodeAt(0)-32); }
+  let sum=vals[0]; for(let i=1;i<vals.length;i++) sum+=vals[i]*i;
+  vals.push(sum%103, 106); return vals;
+}
+function code128SVG(s){
+  const widths=code128Values(s).map(v=>C128[v]).join('').split('').map(Number);
+  const quiet=10, modules=widths.reduce((a,b)=>a+b,0)+quiet*2, H=46;
+  let x=quiet, bars='';
+  widths.forEach((w,i)=>{ if(i%2===0) bars+=`<rect x="${x}" y="0" width="${w}" height="${H}"/>`; x+=w; });
+  return `<svg viewBox="0 0 ${modules} ${H}" preserveAspectRatio="none" shape-rendering="crispEdges" role="img" aria-label="Barcode ${esc(s)}"><rect width="${modules}" height="${H}" fill="#fff"/><g fill="#000">${bars}</g></svg>`;
+}
+function showCheckin(){
+  const card=LL_USER&&GYM_CARDS[LL_USER]; const el=document.getElementById('checkin');
+  if(!card||!el) return false;
+  const who=LL_USER.charAt(0).toUpperCase()+LL_USER.slice(1);
+  el.innerHTML=`<div class="ciwrap">`
+    +`<div class="cibrand">Landi<span class="b2">/lifts</span></div>`
+    +`<div class="cihi">Check in, ${esc(who)}</div>`
+    +`<div class="cisub">Scan this at the front desk</div>`
+    +`<div class="cicard">${code128SVG(card.code)}<div class="cinum">${esc(card.code)}</div>`
+    +`<div class="ciaddr">${esc(card.addr)}<br>${esc(card.phone)}</div></div>`
+    +`<div class="citip">Tip: turn your screen brightness up if it won't scan.</div>`
+    +`<button class="cibtn" id="ciDone">✓ Checked in</button></div>`;
+  el.querySelector('#ciDone').addEventListener('click',()=>el.classList.remove('show'));
+  el.classList.add('show'); return true;
+}
+function hasGymCard(){ return !!(LL_USER&&GYM_CARDS[LL_USER]); }
+
 function updateUserChip(){
   const c=document.getElementById('userChip');
   if(LL_USER){ c.style.display=''; c.className='userchip '+LL_USER; c.textContent=LL_USER.charAt(0).toUpperCase()+LL_USER.slice(1); }
@@ -1922,7 +1969,7 @@ async function pickUser(u){
   if(!LL_USERS.includes(u)) return;
   LL_USER=u; llSet('ll:user',u);
   if(await localHasData()) setDirty();  // first sign-in carries existing local data up to this name
-  updateUserChip(); hideSignin();
+  updateUserChip(); hideSignin(); showCheckin();
   await bootSync();
 }
 async function switchUser(){
@@ -1947,6 +1994,6 @@ document.addEventListener('visibilitychange',()=>{ if(!document.hidden) showToda
 (async()=>{
   progState.sel={type:'all', name:'All movements'};
   updateUserChip();
-  if(LL_USER){ await bootSync(); }
+  if(LL_USER){ showCheckin(); await bootSync(); }   // check-in barcode is the first screen after the splash
   else { await renderAll(); showSignin(); }
 })();
