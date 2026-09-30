@@ -30,11 +30,11 @@ function earlyUser(){ try{ const u=localStorage.getItem('ll:user'); return (u===
 function pickProgram(u){ return (window.PROGRAMS&&window.PROGRAMS[u])||window.PROGRAM; }
 let DATA = pickProgram(earlyUser());
 const EX_GROUP = window.EX_GROUP;
-const PDAYS = ['mon','fri'];   // the two training days of the current program
+const PDAYS = ['mon','wed','fri'];   // the training days of the current program
 
 const DAYS = [
   {k:'mon', dow:'MON', typ:'Full Body A',  tab:'Full Body A', color:'var(--mon)'},
-  {k:'wed', dow:'WED', typ:'Coach Danny',  tab:'Coach',       color:'var(--peach)'},
+  {k:'wed', dow:'WED', typ:'Full Body C',  tab:'Full Body C', color:'var(--peach)'},
   {k:'fri', dow:'FRI', typ:'Full Body B',  tab:'Full Body B', color:'var(--fri)'},
 ];
 // Wednesday (Coach Danny) is a free-form coach session — just tag the muscle groups worked.
@@ -433,16 +433,11 @@ async function renderTabs(){
   for(const d of DAYS){
     const el=document.createElement('button');
     el.className='tab'+(state.day===d.k?' on':''); el.dataset.d=d.k;
-    if(d.k==='wed'){
-      const wed=await loadWed(state.wk); const n=wed.groups.length; const fin=await loadFin(state.wk,'wed');
-      el.innerHTML=`${fin?'<div class="tfin">✓</div>':''}<div class="ring">${n||''}</div><div class="dow">${d.dow}</div><div class="typ">${d.tab}</div>`;
-    } else {
-      const exs=curWeek().days[d.k]||[];
-      const log=await loadDay(state.wk,d.k);
-      const fin=await loadFin(state.wk,d.k);
-      let done=0; exs.forEach((_,i)=>{ if(log[i]&&log[i].done) done++; });
-      el.innerHTML=`${fin?'<div class="tfin">✓</div>':''}<div class="ring">${done}/${exs.length}</div><div class="dow">${d.dow}</div><div class="typ">${d.tab}</div>`;
-    }
+    const exs=curWeek().days[d.k]||[];
+    const log=await loadDay(state.wk,d.k);
+    const fin=await loadFin(state.wk,d.k);
+    let done=0; exs.forEach((_,i)=>{ if(log[i]&&log[i].done) done++; });
+    el.innerHTML=`${fin?'<div class="tfin">✓</div>':''}<div class="ring">${done}/${exs.length}</div><div class="dow">${d.dow}</div><div class="typ">${d.tab}</div>`;
     el.onclick=()=>{ state.day=d.k; renderAll(); };
     tabs.appendChild(el);
   }
@@ -515,7 +510,6 @@ function showWedSummary(wk, fin){
 }
 
 async function renderList(){
-  if(state.day==='wed'){ await renderWed(); return; }
   const w=curWeek(); const exs=w.days[state.day];
   const d=DAYS.find(x=>x.k===state.day);
   const log=await loadDay(state.wk,state.day);
@@ -755,11 +749,11 @@ sheet.addEventListener('click',e=>{ if(e.target.classList.contains('grab')) scri
 function guideHTML(){ return `
   <div class="grab"></div>
   <h2>How this build works</h2>
-  <p>A <b>2-day full-body</b> program on Mon / Fri. Wednesday stays open for your trainer. ${LL_USER==='walt'?'This is your shoulder-safe version — a few presses and raises are swapped for joint-friendly cable variants.':'Each profile has its own program — Walt runs shoulder-safe swaps.'}</p>
+  <p>A <b>3-day full-body</b> program on Mon / Wed / Fri — three full-body sessions (A / C / B) that rotate movements so everything gets hit hard across the week.</p>
   <h3>Weekly schedule</h3>
   <div class="schrow"><div class="d" style="color:var(--mon)">Monday</div><div>Full Body A (program)</div></div>
   <div class="schrow rest"><div class="d">Tuesday</div><div>Rest</div></div>
-  <div class="schrow"><div class="d" style="color:var(--peach)">Wednesday</div><div>Coach Danny — tag the muscle groups worked (optional)</div></div>
+  <div class="schrow"><div class="d" style="color:var(--peach)">Wednesday</div><div>Full Body C (program)</div></div>
   <div class="schrow rest"><div class="d">Thursday</div><div>Rest</div></div>
   <div class="schrow"><div class="d" style="color:var(--fri)">Friday</div><div>Full Body B (program)</div></div>
   <div class="schrow rest"><div class="d">Sat / Sun</div><div>Rest</div></div>
@@ -794,7 +788,7 @@ function guideHTML(){ return `
   <p>Finished a 12-week run? Archive this cycle and restart at Week 1. Your lifetime volume, PR count and per-lift bests carry over (new PRs still beat your past bests); the old logs are kept as a backup.</p>
   <button class="databtn" id="newProgBtn">↻  Archive cycle &amp; restart at Week 1</button>
   <button class="dangerbtn" id="resetBtn">Reset all logged data</button>
-  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.<br><b style="color:var(--sub1)">build 20260623j</b></div>`;
+  <div class="tiny">Your sets save to the cloud as you log them.<br>Adapted from Jeff Nippard’s Intermediate-Advanced program · personal use.<br><b style="color:var(--sub1)">build 20260930a</b></div>`;
 }
 function download(filename, text, mime){
   try{ const blob=new Blob([text],{type:mime||'text/plain'}); const url=URL.createObjectURL(blob);
@@ -944,6 +938,15 @@ const EX_MUSCLE={
   'Seated Machine Row':{Back:1,'Rear Delts':.5,Biceps:.5,Forearms:.25},
   'Leg Press Calf Press':{Calves:1},
   'Roman Chair Leg Raise':{'Lower Abs':1,'Upper Abs':.5,Obliques:.25},
+  // Wednesday (Full Body C) + Friday movements
+  'Barbell Back Squat':{Quads:1,Glutes:.75,'Lower Back':.5,Adductors:.25,Hamstrings:.25},
+  'Neutral-Grip Seated Cable Row':{Back:1,'Rear Delts':.5,Biceps:.5,Forearms:.25},
+  'Dual-Handle Elbows-Out Cable Row':{Back:1,'Rear Delts':.5,Biceps:.5,Forearms:.25},
+  'DB Shrug':{Back:1},
+  'Cable Paused Shrug-In':{Back:1},
+  'Machine Preacher Curl':{Biceps:1},
+  'DB Concentration Curl':{Biceps:1,Forearms:.25},
+  'Triceps Pressdown (Bar)':{Triceps:1},
 };
 // Coarse Wednesday tags -> muscles (each tagged group counts as a moderate hit).
 const WEDGROUP_MUSCLE={
@@ -1112,8 +1115,8 @@ function ovColumn(pt){
 // Every movement's latest logged week vs the one before — the at-a-glance progress board.
 async function overviewData(){
   const m=PMETRICS[progState.metric];
-  const order=PDAYS, dayLabel={mon:'Monday',fri:'Friday'};
-  const byDay={mon:[],fri:[]};
+  const order=PDAYS, dayLabel={mon:'Monday',wed:'Wednesday',fri:'Friday'};
+  const byDay={}; PDAYS.forEach(d=>byDay[d]=[]);
   for(const day of order){
     const names=[], seen=new Set();
     for(let wk=1;wk<=12;wk++){ const exs=(DATA.weeks[wk-1]&&DATA.weeks[wk-1].days[day])||[];
@@ -1300,7 +1303,6 @@ async function exportWeekImage(){
     days.push({k:dk, typ:dm.typ, rows});
   }
   if(!days.length){ alert('Nothing to share for this week yet.'); return; }
-  const wed=await loadWed(wk); const wedGroups=(wed.groups&&wed.groups.length)?wed.groups.slice():null;
 
   try{ await Promise.all([
     document.fonts.load('700 22px "Space Mono"'), document.fonts.load('700 14px "Space Mono"'),
@@ -1313,7 +1315,6 @@ async function exportWeekImage(){
   const W=760, padX=36, scale=2;
   const headerH=120, dayHeadH=46, rowH=44, dayGap=14, footerH=54;
   let bodyH=0; days.forEach(d=>{ bodyH+=dayHeadH + d.rows.length*rowH + dayGap; });
-  if(wedGroups) bodyH+=dayHeadH + 30 + dayGap;
   const H=headerH+bodyH+footerH;
 
   const cv=document.createElement('canvas'); cv.width=W*scale; cv.height=H*scale;
@@ -1355,11 +1356,6 @@ async function exportWeekImage(){
       y+=rowH; });
     y+=dayGap;
   });
-  if(wedGroups){
-    drawDayHead('wed','Coach Danny');
-    ctx.font='13px '+BODY; ctx.fillStyle=C.sub1; ctx.fillText(fit(wedGroups.join('  ·  '), W-2*padX), padX, y+18);
-    y+=30+dayGap;
-  }
   ctx.textAlign='center'; ctx.font='11px '+BODY; ctx.fillStyle=C.ovl;
   ctx.fillText('Landi / lifts · Anything worth doing is worth overdoing.', W/2, H-22); ctx.textAlign='left';
 
@@ -1388,13 +1384,6 @@ async function recoveryData(){
           (moves[m]||(moves[m]=[])).push({name:ex.ex, eff, weight:map[m], amt}); } });
       if(Object.keys(load).length) sessions.push({at, wk, day, load, moves});
     }
-    const finW=await loadFin(wk,'wed');
-    if(finW&&finW.at){ const at=Date.parse(finW.at);
-      if(!isNaN(at)){ const wed=await loadWed(wk); const load={}, moves={};
-        (wed.groups||[]).forEach(g=>{ const map=WEDGROUP_MUSCLE[g]; if(!map) return;
-          for(const m in map){ const amt=REC_WED_SETS*map[m]; load[m]=(load[m]||0)+amt;
-            (moves[m]||(moves[m]=[])).push({name:g+' (Coach Danny)', eff:REC_WED_SETS, weight:map[m], amt}); } });
-        if(Object.keys(load).length) sessions.push({at, wk, day:'wed', load, moves}); } }
   }
   const fatigueAt=(m,t)=>{ let f=0;
     for(const s of sessions){ const L=s.load[m]; if(!L) continue;
@@ -1541,15 +1530,12 @@ async function trainingBalanceData(){
     const mp=(movesPerWeek[wk]||(movesPerWeek[wk]={})); (mp[m]||(mp[m]={}))[name]=((mp[m]||{})[name]||0)+amt; };
   for(let wk=1;wk<=12;wk++){
     for(const day of PDAYS){
-      const log=await loadDay(wk,day); const exs=DATA.weeks[wk-1].days[day];
+      const log=await loadDay(wk,day); const exs=(DATA.weeks[wk-1]&&DATA.weeks[wk-1].days[day])||[];
       exs.forEach((ex,i)=>{ const map=EX_MUSCLE[ex.ex]; if(!map) return; const rec=log[i]; if(!rec||!rec.sets) return;
         let eff=0; rec.sets.forEach(s=>{ const w=parseFloat(s.w),r=parseFloat(s.r); if(w>0&&r>0) eff++; });
         if(eff===0){ if(rec.done) eff=ex.sets||3; else return; }
         for(const m in map) add(wk, m, eff*map[m], ex.ex); });
     }
-    const wed=await loadWed(wk);
-    if(wed.groups&&wed.groups.length){ wed.groups.forEach(g=>{ const map=WEDGROUP_MUSCLE[g]; if(!map) return;
-      for(const m in map) add(wk, m, REC_WED_SETS*map[m], g+' (Coach Danny)'); }); }
   }
   const wks=Object.keys(perWeek).map(Number).sort((a,b)=>a-b);
   if(!wks.length) return {byMuscle:{}, anyData:false, weeks:0};
@@ -1727,14 +1713,12 @@ async function exDataSet(){
 const dot=have=> have?'<i class="dbadge" title="has logged data"></i>':'';
 document.getElementById('exSel').onclick=async()=>{
   const data=await exDataSet();
-  const coach=await coachData();
   const groupHas=g=>(GROUP_INDEX[g]||[]).some(o=>{ const ex=DATA.weeks[o.wk-1].days[o.day][o.exIdx]; return ex&&data.has(ex.ex); });
   let html=`<div class="grab"></div><h2>What do you want to track?</h2>`;
   html+=`<div class="pickhint">${dot(true)} have logged data</div>`;
   html+=`<h3>Overview</h3>`;
   html+=`<button class="mopt" data-all="1">All movements<span>${dot(data.size>0)}week vs week</span></button>`;
   html+=`<button class="mopt" data-full="1">Full Body<span>${dot(data.size>0)}total volume</span></button>`;
-  html+=`<button class="mopt" data-coach="1">Coach Danny<span>${dot(coach.total>0)}Wed muscle map</span></button>`;
   html+=`<h3>Muscle groups</h3>`;
   GROUP_ORDER.forEach(g=>{ if(GROUP_INDEX[g]) html+=`<button class="mopt" data-group="${g}">${g}<span>${dot(groupHas(g))}rollup</span></button>`; });
   const seen=new Set();
