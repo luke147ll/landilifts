@@ -602,3 +602,18 @@ header{position:sticky;top:0;z-index:30;background:linear-gradient(180deg,var(--
 .cibtn{width:100%;padding:16px;border-radius:14px;background:var(--green);color:var(--crust);font-family:var(--disp);
   font-weight:700;font-size:16px;letter-spacing:.3px;transition:transform .15s}
 .cibtn:active{transform:scale(.97)}
+
+/* Session-only exercise / equipment selection */
+.session-exercise{padding:0 14px 12px}
+.swapbtn{border:1px solid var(--sky);border-radius:9px;padding:10px 12px;color:var(--sky);font-size:12px;min-height:44px}
+.identity-label,.history-hint{font-size:12px;color:var(--sub1);line-height:1.5;margin-top:7px;overflow-wrap:anywhere}
+.history-hint{color:var(--ovl1)}
+.swapform{display:grid;gap:14px}
+.swapform label{display:grid;gap:6px;color:var(--sub1);font-size:13px}
+.swapform input,.swapform select{width:100%;min-width:0;box-sizing:border-box;background:var(--crust);color:var(--text);border:1px solid var(--s1);border-radius:8px;padding:12px;font-size:16px}
+.swapform .subs{flex-wrap:wrap}
+.swapform .subchip{white-space:normal;text-align:left;min-height:44px}
+.exopt{text-align:left;gap:10px;overflow-wrap:anywhere}
+.card.collapsed .session-exercise{display:none}
+.ovrow{grid-template-columns:minmax(130px,1.5fr) minmax(40px,1fr) 46px 12px}
+.ovname{white-space:normal;overflow-wrap:anywhere}

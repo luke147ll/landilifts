@@ -98,3 +98,58 @@ Open the deployed URL in Safari (iOS) or Chrome (Android) -> Share ->
   cache; external webfonts fall back to monospace when offline).
 - Self-host the fonts to drop the Google Fonts dependency.
 - Split muscle groups finer, add per-lift target/goal lines, or a CSV import.
+
+## Session exercise substitutions (development branch)
+
+In Train, expand a movement and choose **Change exercise / equipment**. Pick a
+suggested substitute or type an exercise, select equipment, and optionally name
+its machine/setup. Previously used setups can be selected again. This changes
+only that week/day slot in the current cycle; `public/data.js` and both profiles'
+12-week schedules remain unchanged. The selected movement retains the slot's
+sets/reps prescription, with coaching notes explicitly labeled as scheduled.
+
+Each exercise name + equipment type + optional setup label has separate PRs,
+last-logged hints, and Progress history. A setup label distinguishes machines
+with different stacks or sleds. Switching after logging preserves those sets
+under their original identity; switching back restores them. Mark complete and
+Finish workout do not fill untouched sets, so logging only a PR is supported.
+The per-set Done button still explicitly accepts the displayed defaults.
+
+### Storage and compatibility
+
+- Existing `bts:log:wN:day` keys and `done`/`sets` fields remain. New optional
+  `exercise` metadata identifies the active movement; `variants` retains other
+  identities used in that slot. Backups and cloud sync include the entire record.
+- Legacy logs are resolved on read from their original scheduled exercise and
+  stored `resType` (or the original equipment inference); no eager rewrite or
+  new program migration runs merely because this feature loads.
+- Name-only archived bests/last sets have no equipment provenance. They retain
+  the historical default equipment association. Previously mixed equipment
+  cannot be reconstructed automatically; new named setups start separately.
+- Cycle rollover archives raw records including variants and carries each
+  identity's best/last sets. Read/archive/baseline failures stop before clearing.
+- Pending saves capture their payload and are flushed before export/sync or
+  account clearing. Failed saves remain retryable. Switching profiles while
+  sync fails keeps the current profile and local data.
+- JSON backups retain all metadata. CSV exports add Equipment and Setup columns
+  and include switched-away records. Older app versions do not understand
+  variants; do not use an old client to edit new-format records.
+- Recovery estimates use known actual exercise mappings. Custom movements with
+  no detailed muscle mapping still have PR/history/volume, but do not receive
+  invented muscle-readiness estimates. Zero-added-weight bodyweight PRs retain
+  the existing weighted-metric limitations.
+
+### Validation
+
+Run `node --test tests/exercise-history.test.cjs` (Node's built-in runner; no
+installation or production service required). Tests execute the app's functions
+with synthetic storage and a minimal DOM fixture. They cover legacy reads,
+exercise/equipment isolation, repeated swaps, sparse logging, save/reload,
+backup/CSV, progression, cycle/legacy migration, read/write failures, and
+successful/offline profile switching.
+
+Browser checks were also performed against localhost with synthetic data and
+an in-memory sync endpoint: substitutions, original-set restoration, separate
+Progress rows, completion without extra sets, named setups, reload persistence,
+unchanged next-week scheduling, and a 390-pixel phone viewport. Production D1 and
+Cloudflare deployment were not used for testing.

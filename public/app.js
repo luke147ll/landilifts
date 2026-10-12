@@ -55,15 +55,27 @@ async function loadDay(wk,day){
   catch(e){ val={}; }
   dayCache[k]=val; return val;
 }
-let saveTimers={};
+const unsavedDays=new Map();
+let pendingDayWrites=null;
 function queueSave(wk,day){
-  const k=keyFor(wk,day);
-  clearTimeout(saveTimers[k]);
-  saveTimers[k]=setTimeout(async()=>{
-    try{ await window.storage.set(k, JSON.stringify(dayCache[k]||{}), false); }
-    catch(e){ console.error('save failed',e); }
-    scheduleCloudPush();
-  },500);
+  const k=keyFor(wk,day), value=JSON.stringify(dayCache[k]||{});
+  // Capture payload before navigation/account changes. Failed writes remain retryable.
+  unsavedDays.set(k,value);
+  flushDayWrites().catch(e=>console.error('save failed; retained for retry',e));
+  scheduleCloudPush();
+}
+async function flushDayWrites(){
+  if(pendingDayWrites) return pendingDayWrites;
+  pendingDayWrites=(async()=>{
+    while(unsavedDays.size){
+      const [k,value]=unsavedDays.entries().next().value;
+      await window.storage.set(k,value,false);
+      // Current-program edits must never be mistaken for old-program logs on next boot.
+      await window.storage.set('bts:prog:v2','1',false);
+      if(unsavedDays.get(k)===value) unsavedDays.delete(k);
+    }
+  })();
+  try{ await pendingDayWrites; }finally{ pendingDayWrites=null; }
 }
 
 /* ---------- helpers ---------- */
@@ -129,16 +141,70 @@ function loadoutSVG(base, perSide){
 // live mutable record for the current day (mutations persist via queueSave)
 function liveRec(idx){ const k=keyFor(state.wk,state.day); const dc=dayCache[k]||(dayCache[k]={}); return dc[idx]||(dc[idx]={done:false,sets:[]}); }
 
+// Resolve actual movements without modifying the scheduled program or legacy records.
+const EH=window.ExerciseHistory;
+function sessionEntries(exs, log){ return exs.flatMap((ex,i)=>EH.entries(ex,log[i]).map(entry=>({...entry, idx:i}))); }
+async function historyEntries(){
+  const out=[];
+  for(const w of DATA.weeks) for(const day of PDAYS){
+    const log=await loadDay(w.n,day);
+    sessionEntries(w.days[day]||[],log).forEach(e=>out.push({...e,wk:w.n,day}));
+  }
+  return out;
+}
+function hasLoggedSets(rec){ return (rec.sets||[]).some(s=>s && (s.w!==undefined && s.w!=='' || s.r!==undefined && s.r!=='')); }
+async function previousSets(id, wk, day){
+  const key=EH.key(id), rank=wk*10+PDAYS.indexOf(day);
+  const entries=(await historyEntries()).filter(e=>e.ex.historyKey===key && e.wk*10+PDAYS.indexOf(e.day)<rank && hasLoggedSets(e.rec));
+  return entries.length ? entries[entries.length-1].rec.sets : (EH.baselineMap((await loadBaseline()).lastSets)[key]||[]);
+}
+async function showSubstitution(idx, planned){
+  const wk=state.wk, day=state.day, id=EH.identity(planned,liveRec(idx));
+  sheet.innerHTML='<div class="grab"></div><h2>Exercise for this workout</h2><p>Only Week '+wk+' '+day.toUpperCase()+'. Each exercise and equipment setup has its own history. Switching back restores your entries.</p>';
+  const form=el('form','swapform');
+  const nameLabel=el('label',null,'Exercise'); const name=el('input'); name.required=true; name.maxLength=100; name.value=id.name; nameLabel.appendChild(name);
+  const choices=el('div','subs');
+  [...new Set([planned.ex,planned.sub1,planned.sub2].filter(Boolean))].forEach(n=>{ const b=el('button','subchip',esc(n)); b.type='button'; b.onclick=()=>{name.value=n; equipment.value=resTypeFor(n); label.value='';}; choices.appendChild(b); });
+  const eqLabel=el('label',null,'Equipment'); const equipment=el('select');
+  RES_ORDER.forEach(k=>{ const o=el('option',null,WRES[k].label); o.value=k; equipment.appendChild(o); }); equipment.value=id.equipment; eqLabel.appendChild(equipment);
+  const setupLabel=el('label',null,'Machine / setup name (optional)'); const label=el('input'); label.maxLength=80; label.placeholder='e.g. upstairs cable machine'; label.value=id.label; setupLabel.appendChild(label);
+  const groupLabel=el('label',null,'Muscle group'); const group=el('select');
+  [...GROUP_ORDER,'Other'].forEach(g=>{ const o=el('option',null,g); o.value=g; group.appendChild(o); }); group.value=id.group; groupLabel.appendChild(group);
+  const known=new Map();
+  for(const e of await historyEntries()) if(e.id.name===id.name||e.ex.plannedName===planned.ex) known.set(EH.key(e.id),e.id);
+  for(const key of Object.keys((await loadBaseline()).lastSets||{})){
+    try{ const [name,equipment,label]=JSON.parse(key.slice(9));
+      if(name===id.name||[planned.ex,planned.sub1,planned.sub2].includes(name)) known.set(key,{name,equipment,label,group:EX_GROUP[name]||id.group});
+    }catch(_){}
+  }
+  if(known.size){ const savedLabel=el('label',null,'Previously used setups'); const saved=el('select');
+    const blank=el('option',null,'Choose a saved setup'); blank.value=''; saved.appendChild(blank);
+    for(const [key,item] of known){ const option=el('option',null,esc(EH.label(item))); option.value=key; saved.appendChild(option); }
+    saved.onchange=()=>{ const item=known.get(saved.value); if(item){name.value=item.name; equipment.value=item.equipment; label.value=item.label; group.value=item.group;} };
+    savedLabel.appendChild(saved); form.appendChild(savedLabel);
+  }
+  const save=el('button','databtn','Use for this workout'); save.type='submit';
+  const cancel=el('button','databtn','Cancel'); cancel.type='button'; cancel.onclick=()=>scrim.classList.remove('show');
+  form.append(nameLabel,choices,eqLabel,setupLabel,groupLabel,save,cancel); sheet.appendChild(form);
+  form.onsubmit=async event=>{ event.preventDefault(); if(!name.value.trim()) return;
+    if(state.wk!==wk||state.day!==day) return;
+    const next={name:name.value.trim().replace(/\s+/g,' '),equipment:equipment.value,label:label.value.trim().replace(/\s+/g,' '),group:EX_GROUP[name.value.trim()]||group.value};
+    dayCache[keyFor(wk,day)][idx]=EH.select(planned,liveRec(idx),next);
+    queueSave(wk,day); scrim.classList.remove('show'); await computePRBase(); await renderList();
+  };
+  scrim.classList.add('show'); name.focus();
+}
+
 // ---- PR detection ----
 let PR_BASE={}, prFiredSession=new Set(), toastTimer=null, afterEdit=null;
 async function computePRBase(){
   PR_BASE={};
-  const base=await loadBaseline(); for(const n in base.exBest) PR_BASE[n]=base.exBest[n];  // carry past bests
+  const base=await loadBaseline(); for(const [n,v] of Object.entries(EH.baselineMap(base.exBest))) PR_BASE[n]=v;  // carry past bests
   let all={}; try{ all=await gatherAll(); }catch(_){}
   for(const k in all){ if(!k.startsWith('bts:log:')) continue; const m=k.match(/w(\d+):(\w+)/); if(!m) continue;
     const exs=(DATA.weeks[+m[1]-1]&&DATA.weeks[+m[1]-1].days[m[2]])||[]; const log=all[k]||{};
-    exs.forEach((ex,i)=>{ const rec=log[i]; if(!rec||!rec.sets) return;
-      rec.sets.forEach(st=>{ const e=e1rm(parseFloat(st.w),parseFloat(st.r)); if(e>(PR_BASE[ex.ex]||0)) PR_BASE[ex.ex]=e; }); });
+    sessionEntries(exs,log).forEach(({ex,rec})=>{ if(!rec.sets) return;
+      rec.sets.forEach(st=>{ const e=e1rm(parseFloat(st.w),parseFloat(st.r)); if(e>(PR_BASE[ex.historyKey]||0)) PR_BASE[ex.historyKey]=e; }); });
   }
 }
 function setField(idx, ex, s, f, val){
@@ -147,11 +213,12 @@ function setField(idx, ex, s, f, val){
   r.sets[s][f]=val;
   queueSave(state.wk,state.day);
   const sv=r.sets[s]; const e=e1rm(parseFloat(sv.w),parseFloat(sv.r));
-  if(e>(PR_BASE[ex.ex]||0) && !prFiredSession.has(ex.ex)){ fireToast(ex.ex, e); PR_BASE[ex.ex]=e; }
+  const id=EH.identity(ex,r), key=EH.key(id);
+  if(e>(PR_BASE[key]||0)){ if(!prFiredSession.has(key)) fireToast(EH.label(id), e, key); PR_BASE[key]=e; }
   if(afterEdit) afterEdit();
 }
-function fireToast(name, val){
-  prFiredSession.add(name);
+function fireToast(name, val, key=name){
+  prFiredSession.add(key);
   const pm=document.getElementById('prMedal'); pm.className='medal t-gold'; pm.style.width='46px'; pm.innerHTML=medalMarkup('▲','gold',40);
   document.getElementById('prToastBody').innerHTML=esc(name)+' · <b>'+val+' lb</b> est. 1RM';
   const t=document.getElementById('prToast'); t.classList.add('show');
@@ -238,21 +305,21 @@ function medalMarkup(glyph, tier, size){
 async function progStats(){
   let all={}; try{ all=await gatherAll(); }catch(_){}
   const base=await loadBaseline();                 // carried-over history from past programs
-  const exBest={}; for(const n in base.exBest) exBest[n]=base.exBest[n];  // seed PR baseline
+  const exBest={}; for(const [n,v] of Object.entries(EH.baselineMap(base.exBest))) exBest[n]=v;  // seed PR baseline
   const prByWeek={}, volByWeek={}, setsByWeek={}, daysByWeek={}, weekHasLog={};
   for(let wk=1; wk<=12; wk++){
     const prHits=new Set();
     for(const day of PDAYS){
       const log=all[keyFor(wk,day)]; if(!log) continue;
       const exs=(DATA.weeks[wk-1]&&DATA.weeks[wk-1].days[day])||[];
-      exs.forEach((ex,i)=>{ const rec=log[i]; if(!rec) return; let dayHas=false;
+      sessionEntries(exs,log).forEach(({ex,rec})=>{ let dayHas=false;
         (rec.sets||[]).forEach(st=>{ const w=parseFloat(st.w), r=parseFloat(st.r); if(w>0&&r>0){
           dayHas=true;
           volByWeek[wk]=(volByWeek[wk]||0)+w*r;
           setsByWeek[wk]=(setsByWeek[wk]||0)+1;
-          const e=w*(1+r/30), prev=exBest[ex.ex];
-          if(prev===undefined) exBest[ex.ex]=e;          // first time = baseline, not a PR
-          else if(e>prev+0.001){ exBest[ex.ex]=e; prHits.add(ex.ex); }
+          const e=w*(1+r/30), prev=exBest[ex.historyKey];
+          if(prev===undefined) exBest[ex.historyKey]=e;          // first time = baseline, not a PR
+          else if(e>prev+0.001){ exBest[ex.historyKey]=e; prHits.add(ex.historyKey); }
         }});
         if(rec.done) dayHas=true;
         if(dayHas){ (daysByWeek[wk]=daysByWeek[wk]||new Set()).add(day); weekHasLog[wk]=true; }
@@ -301,9 +368,10 @@ async function loadFin(wk,day){ const k='bts:fin:w'+wk+':'+day; if(k in finCache
 async function daySummary(wk,day){
   const exs=(DATA.weeks[wk-1]&&DATA.weeks[wk-1].days[day])||[]; const log=await loadDay(wk,day);
   let done=0, sets=0, vol=0, bestE=0, bestEx='';
-  exs.forEach((ex,i)=>{ const rec=log[i]; if(!rec) return; if(rec.done) done++;
+  done=exs.filter((_,i)=>log[i]&&log[i].done).length;
+  sessionEntries(exs,log).forEach(({ex,rec})=>{
     (rec.sets||[]).forEach(st=>{ const w=parseFloat(st.w), r=parseFloat(st.r); if(w>0&&r>0){
-      sets++; vol+=w*r; const e=Math.round(w*(1+r/30)); if(e>bestE){ bestE=e; bestEx=ex.ex; } } }); });
+      sets++; vol+=w*r; const e=Math.round(w*(1+r/30)); if(e>bestE){ bestE=e; bestEx=ex.historyLabel; } } }); });
   return {total:exs.length, done, sets, vol:Math.round(vol), bestE, bestEx};
 }
 function showWorkoutSummary(wk,day,fin){
@@ -322,40 +390,9 @@ function showWorkoutSummary(wk,day,fin){
   })();
 }
 // On finishing a workout, capture every set the lifter put a value into —
-// even if they never tapped "Done set"/"Mark complete". For any set with a
-// weight OR reps entered, backfill the missing field from the shown default
-// (carry-forward weight / last-week reps, else 8) and mark it done. Untouched
-// sets (no weight and no reps) are left empty — we don't invent lifts.
-function commitDayInputs(wk, day){
-  const exs=(DATA.weeks[wk-1]&&DATA.weeks[wk-1].days[day])||[];
-  if(!exs.length) return false;
-  const dc=dayCache[keyFor(wk,day)]; if(!dc) return false;
-  let prevByName={};
-  if(wk>1){ const pExs=(DATA.weeks[wk-2]&&DATA.weeks[wk-2].days[day])||[]; const pLog=dayCache[keyFor(wk-1,day)]||{};
-    pExs.forEach((pe,pi)=>{ if(pLog[pi]) prevByName[pe.ex]=pLog[pi].sets||[]; }); }
-  const has=v=> v!==undefined&&v!==null&&v!=='';
-  let changed=false;
-  exs.forEach((ex,idx)=>{
-    const rec=dc[idx]; if(!rec||!rec.sets||!rec.sets.length) return;
-    const nSets=ex.sets||2, prev=prevByName[ex.ex]||[];
-    const repsPre=s=>{ const pv=prev[s]||{}; return has(pv.r)?String(pv.r):'8'; };
-    const carryW=s=>{ for(let p=s-1;p>=0;p--){ const w=rec.sets[p]&&rec.sets[p].w; if(has(w)) return String(w); } const pv=prev[s]||{}; return has(pv.w)?String(pv.w):null; };
-    for(let s=0;s<nSets;s++){ const sv=rec.sets[s]; if(!sv) continue;
-      if(!has(sv.w)&&!has(sv.r)) continue;                 // untouched set
-      if(!has(sv.w)){ const w=carryW(s); if(w!=null){ sv.w=w; changed=true; } }
-      if(!has(sv.r)){ sv.r=repsPre(s); changed=true; }
-      if(has(sv.w)&&has(sv.r)&&!sv.done){ sv.done=true; changed=true; }
-    }
-    let all=nSets>0; for(let s=0;s<nSets;s++){ if(!(rec.sets[s]&&rec.sets[s].done)){ all=false; break; } }
-    if(all&&!rec.done){ rec.done=true; changed=true; }
-  });
-  return changed;
-}
+// Completion saves only what was actually entered; sparse PR-only logs stay sparse.
 async function finishWorkout(){
-  const dk=keyFor(state.wk,state.day);
-  if(commitDayInputs(state.wk, state.day)){
-    try{ await window.storage.set(dk, JSON.stringify(dayCache[dk]||{}), false); }catch(_){}
-  }
+  await flushDayWrites();
   const k='bts:fin:w'+state.wk+':'+state.day; const fin={at:new Date().toISOString()};
   try{ await window.storage.set(k, JSON.stringify(fin), false); }catch(_){}
   finCache[k]=fin;
@@ -513,14 +550,10 @@ async function renderList(){
   const w=curWeek(); const exs=w.days[state.day];
   const d=DAYS.find(x=>x.k===state.day);
   const log=await loadDay(state.wk,state.day);
-  // previous week same day for overload hints
-  let prevLog={}, prevExs=[];
-  if(state.wk>1){ prevExs=(DATA.weeks[state.wk-2].days[state.day])||[]; prevLog=await loadDay(state.wk-1,state.day); }
   const prevByName={};
-  prevExs.forEach((pe,pi)=>{ if(prevLog[pi]) prevByName[pe.ex]=prevLog[pi].sets||[]; });
-  // fall back to the last logged sets carried from a previous program cycle (e.g. fresh Week 1)
-  const baseLast=(await loadBaseline()).lastSets||{}; const carryNames=new Set();
-  exs.forEach(e=>{ if(!(prevByName[e.ex]&&prevByName[e.ex].length) && baseLast[e.ex]&&baseLast[e.ex].length){ prevByName[e.ex]=baseLast[e.ex]; carryNames.add(e.ex); } });
+  for(let i=0;i<exs.length;i++){
+    const id=EH.identity(exs[i],log[i]); prevByName[EH.key(id)]=await previousSets(id,state.wk,state.day);
+  }
 
   let done=0; exs.forEach((_,i)=>{ if(log[i]&&log[i].done) done++; });
   document.getElementById('daybar').innerHTML =
@@ -535,13 +568,17 @@ async function renderList(){
   function updateStatuses(){
     const dc=dayCache[keyFor(state.wk,state.day)]||{};
     cards.forEach((c,i)=>{ const r=dc[i]||{}; c.classList.toggle('complete', !!r.done);
+      const hint=c.querySelector('.history-hint'); if(hint){const id=EH.identity(exs[i],r), best=PR_BASE[EH.key(id)];
+        hint.textContent=(best?'Best est. 1RM: '+Math.round(best)+' lb':'No PR logged for this setup yet')+' · Log just your PR, or any sets you want to keep.';}
       const cs=c.querySelector('.csum'); if(cs) cs.innerHTML=summaryText(exs[i], r); });
   }
   function setOpen(idx){ updateStatuses(); openIdx=(openIdx===idx?-1:idx); cards.forEach((c,i)=>c.classList.toggle('collapsed', i!==openIdx));
     if(openIdx>=0 && cardSets[openIdx]) cardSets[openIdx](); }  // rebuild steppers while visible (iOS lays out nested flex correctly)
   afterEdit=updateStatuses;
-  exs.forEach((ex,idx)=>{
+  exs.forEach((planned,idx)=>{
     const rec=log[idx]||{done:false,sets:[]};
+    const id=EH.identity(planned,rec);
+    const ex={...planned,ex:id.name,demo:id.name===planned.ex?planned.demo:null};
     const nSets=ex.sets||2;
     const tl=techLabel(ex.tech); const tc=techClass(ex.tech);
     const card=document.createElement('div'); card.className='card';
@@ -556,8 +593,8 @@ async function renderList(){
     const nameHTML = `<span class="exname">${esc(ex.ex)}</span>`
       + (ex.demo ? `<a class="play" href="${ex.demo}" target="_blank" rel="noopener" aria-label="Watch demo video">▶ demo</a>` : '');
 
-    const prevSets = prevByName[ex.ex]||[];
-    const refLbl = carryNames.has(ex.ex)?'last':'last wk';
+    const prevSets = prevByName[EH.key(id)]||[];
+    const refLbl = 'last logged';
     card.innerHTML=`
       <div class="chead">
         <div class="cnum">${String(idx+1).padStart(2,'0')}</div>
@@ -565,6 +602,9 @@ async function renderList(){
         <span class="ccol">▾</span>
         <button class="done${rec.done?' on':''}" data-done="${idx}" aria-label="Mark done">✓</button>
       </div>
+      <div class="session-exercise"><button class="swapbtn" type="button">Change exercise / equipment</button>
+        <div class="identity-label">${esc(EH.label(id))}${id.name!==planned.ex?'<br>Scheduled: '+esc(planned.ex):''}</div>
+        <div class="history-hint">${PR_BASE[EH.key(id)]?'Best est. 1RM: '+Math.round(PR_BASE[EH.key(id)])+' lb':'No PR logged for this setup yet'} · Log just your PR, or any sets you want to keep.</div></div>
       <div class="sets" id="setbox-${idx}"></div>
       <div class="cmprow"><button class="cmpbtn" data-cmp="${idx}">Mark complete</button></div>
       <div class="more">
@@ -572,10 +612,11 @@ async function renderList(){
         <div class="mbody" id="mb-${idx}">
           <div class="lbl">Swap options</div>
           <div class="subs">${ex.sub1?`<span class="subchip">${esc(ex.sub1)}</span>`:''}${ex.sub2?`<span class="subchip">${esc(ex.sub2)}</span>`:''}</div>
-          <div class="lbl">Notes</div>
+          <div class="lbl">Scheduled exercise notes</div>
           <div class="notes">${esc((ex.notes||'').trim())||'—'}</div>
         </div>
       </div>`;
+    card.querySelector('.swapbtn').onclick=()=>showSubstitution(idx,planned);
     list.appendChild(card);
     cards.push(card);
     if(idx!==openIdx) card.classList.add('collapsed');
@@ -585,8 +626,6 @@ async function renderList(){
     });
 
     const setbox=card.querySelector('#setbox-'+idx);
-    // back-fill per-set done flags for movements completed before this feature
-    (function(){ const r=liveRec(idx); if(r.done){ r.sets=r.sets||[]; for(let s=0;s<nSets;s++){ while(r.sets.length<=s) r.sets.push({}); r.sets[s].done=true; } } })();
     const setDoneState=(s)=>{ const sv=(liveRec(idx).sets||[])[s]; return !!(sv&&sv.done); };
     const firstOpen=()=>{ for(let s=0;s<nSets;s++) if(!setDoneState(s)) return s; return -1; };
     const lastWk=(s)=>prevSets[s]||{};
@@ -596,11 +635,11 @@ async function renderList(){
     function recomputeMovementDone(){ const r=liveRec(idx); let all=nSets>0; for(let s=0;s<nSets;s++){ if(!(r.sets&&r.sets[s]&&r.sets[s].done)){ all=false; break; } } r.done=all; }
     function markSetDone(s){ const r=liveRec(idx); r.sets=r.sets||[]; while(r.sets.length<=s) r.sets.push({}); const sv=r.sets[s];
       if(sv.w===undefined||sv.w===''){ const w=carryWeight(s); if(w!=null) sv.w=w; }   // commit the shown default if untouched
-      if(sv.r===undefined||sv.r==='') sv.r=repsPre(s);
+      if(sv.r===undefined||sv.r==='') setField(idx,ex,s,'r',repsPre(s));
       sv.done=true; recomputeMovementDone(); queueSave(state.wk,state.day); openS=firstOpen(); refreshCounts(); refreshDone(); renderSets(); }
     let openS=firstOpen();
     function renderSets(){
-      const resType=liveRec(idx).resType||resTypeFor(ex.ex);
+      const resType=EH.identity(planned,liveRec(idx)).equipment;
       let dc=0; for(let s=0;s<nSets;s++) if(setDoneState(s)) dc++;
       setbox.innerHTML=`<div class="blocklbl"><span class="bln">Working sets</span><span class="tick"><b>${dc}</b>/${nSets} done</span></div>`;
       for(let s=0;s<nSets;s++){
@@ -624,13 +663,12 @@ async function renderList(){
         const right=(hint||clearBtn)?`<span class="wtright">${hint}${clearBtn}</span>`:'';
         const ws=el('div','workset',`<div class="worktop"><span class="sn${last?' last':''}">Set ${s+1}</span>${last?'<span class="failpill">FAILURE</span>':''}${right}</div>`);
         const cb=ws.querySelector('.setclear');
-        if(cb) cb.addEventListener('click',()=>{ const r=liveRec(idx); if(r.sets&&r.sets[s]) r.sets[s]={};
-          recomputeMovementDone(); queueSave(state.wk,state.day); renderSets(); refreshCounts(); refreshDone(); });
+        if(cb) cb.addEventListener('click',async()=>{ const r=liveRec(idx); if(r.sets&&r.sets[s]) r.sets[s]={};
+          recomputeMovementDone(); queueSave(state.wk,state.day); await computePRBase(); renderSets(); refreshCounts(); refreshDone(); });
         const fields=el('div','workfields');
         const wf=el('div',null,'<div class="fieldlbl">Weight</div>');
         wf.appendChild(makeWeightStepper(idx, ex, s, resType, wPre, s===0?()=>{
-          const r=liveRec(idx); r.resType=RES_ORDER[(RES_ORDER.indexOf(resType)+1)%RES_ORDER.length];
-          queueSave(state.wk,state.day); renderSets();
+          showSubstitution(idx,planned);
         }:null));
         const rf=el('div','repsrow','<div class="rl"><div class="fieldlbl">Reps</div></div>');
         rf.appendChild(makeRepsStepper(idx, ex, s, rPre));
@@ -653,12 +691,8 @@ async function renderList(){
       cmpBtn.textContent=on?'✓ Completed':'Mark complete';
       updateStatuses();
     }
-    function toggleDone(){ const r=liveRec(idx); const target=!r.done; r.sets=r.sets||[];
-      for(let s=0;s<nSets;s++){ while(r.sets.length<=s) r.sets.push({}); const sv=r.sets[s];
-        if(target){ if(sv.w===undefined||sv.w===''){ const w=carryWeight(s); if(w!=null) sv.w=w; }
-          if(sv.r===undefined||sv.r==='') sv.r=repsPre(s); }
-        sv.done=target; }
-      r.done=target; queueSave(state.wk,state.day); openS=target?-1:0; refreshCounts(); refreshDone(); renderSets(); }
+    function toggleDone(){ const r=liveRec(idx); r.done=!r.done;
+      queueSave(state.wk,state.day); refreshCounts(); refreshDone(); renderSets(); }
     doneBtn.addEventListener('click',toggleDone);
     cmpBtn.addEventListener('click',toggleDone);
     refreshDone();
@@ -796,14 +830,17 @@ function download(filename, text, mime){
     const a=document.createElement('a'); a.href=url; a.download=filename; document.body.appendChild(a); a.click();
     setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); },800); return true; }catch(e){ return false; }
 }
-async function gatherAll(){
+async function gatherAll(strict=false){
+  await flushDayWrites();
   const out={};
   try{ const r=await window.storage.list('bts:', false); const keys=(r&&r.keys)||[];
-    for(const k of keys){ try{ const v=await window.storage.get(k,false); if(v&&v.value!=null) out[k]=JSON.parse(v.value); }catch(_){} }
+    for(const k of keys){ try{ const v=await window.storage.get(k,false); if(v&&v.value!=null) out[k]=JSON.parse(v.value); }catch(e){ if(strict) throw e; } }
   }catch(e){
+    if(strict) throw e;
     for(let wk=1;wk<=12;wk++) for(const d of ['mon','wed','fri','sat']){ const k=keyFor(wk,d);
       try{ const v=await window.storage.get(k,false); if(v&&v.value!=null) out[k]=JSON.parse(v.value);}catch(_){} }
   }
+  for(const [k,v] of Object.entries(dayCache)) if(k in out||Object.keys(v).length) out[k]=v;
   return out;
 }
 function showText(title, txt){
@@ -819,10 +856,10 @@ async function exportJSON(){
   if(!download('bts-backup-'+stamp+'.json', txt, 'application/json')) showText('Backup data', txt);
 }
 async function exportCSV(){
-  const rows=[['Week','Day','Exercise','Set','Weight','Reps']];
+  const rows=[['Week','Day','Exercise','Equipment','Setup','Set','Weight','Reps']];
   for(const w of DATA.weeks){ for(const dk of PDAYS){ const log=await loadDay(w.n,dk);
-    w.days[dk].forEach((ex,i)=>{ const rec=log[i]; if(rec&&rec.sets) rec.sets.forEach((s,si)=>{
-      if(s&&((s.w&&s.w!=='')||(s.r&&s.r!==''))) rows.push([w.n, dk.toUpperCase(), ex.ex, si+1, s.w||'', s.r||'']); }); }); } }
+    sessionEntries(w.days[dk],log).forEach(({ex,rec,id})=>{ if(rec.sets) rec.sets.forEach((s,si)=>{
+      if(s&&((s.w&&s.w!=='')||(s.r&&s.r!==''))) rows.push([w.n, dk.toUpperCase(), ex.ex, id.equipment, id.label, si+1, s.w||'', s.r||'']); }); }); } }
   const csv=rows.map(r=>r.map(c=>{ c=String(c); return /[",\n]/.test(c)?'"'+c.replace(/"/g,'""')+'"':c; }).join(',')).join('\n');
   const stamp=new Date().toISOString().slice(0,10);
   if(!download('bts-log-'+stamp+'.csv', csv, 'text/csv')) showText('Training log (CSV)', csv);
@@ -832,8 +869,8 @@ function restoreData(text){
   const data=(obj&&obj.data)?obj.data:obj; const keys=Object.keys(data||{});
   if(!keys.length){ alert('No saved data found in that file.'); return; }
   if(!confirm('Restore '+keys.length+' saved day(s)? This replaces your current logs.')) return;
-  (async()=>{ for(const k of keys){ try{ await window.storage.set(k, JSON.stringify(data[k]), false);}catch(_){} }
-    dayCache={}; finCache={}; finWkCache={}; wedCache={}; prFiredSession.clear(); scheduleCloudPush(); scrim.classList.remove('show'); await renderAll(); await computePRBase();
+  (async()=>{ await flushDayWrites(); for(const k of keys){ try{ await window.storage.set(k, JSON.stringify(data[k]), false);}catch(_){} }
+    dayCache={}; finCache={}; finWkCache={}; wedCache={}; prFiredSession.clear(); scheduleCloudPush(); scrim.classList.remove('show'); await computePRBase(); await renderAll();
     try{ if(document.getElementById('bodyView').style.display!=='none'){ await renderProg(); await renderShelf(); await renderRecovery(); } }catch(_){}
     alert('Backup restored.'); })();
 }
@@ -841,9 +878,10 @@ sheet.addEventListener('click',async(e)=>{
   const id=e.target.id;
   if(id==='resetBtn'){
     if(!confirm('Erase every logged set across all 12 weeks? This cannot be undone.')) return;
+    await flushDayWrites();
     try{ const r=await window.storage.list('bts:', false); for(const k of ((r&&r.keys)||[])){ try{ await window.storage.delete(k,false);}catch(_){} } }
     catch(_){ for(let wk=1;wk<=12;wk++) for(const d of ['mon','wed','fri','sat']){ try{ await window.storage.delete(keyFor(wk,d),false);}catch(__){} } }
-    dayCache={}; finCache={}; finWkCache={}; wedCache={}; prFiredSession.clear(); scheduleCloudPush(); scrim.classList.remove('show'); await renderAll(); await computePRBase(); renderShelf();
+    dayCache={}; finCache={}; finWkCache={}; wedCache={}; prFiredSession.clear(); scheduleCloudPush(); scrim.classList.remove('show'); await computePRBase(); await renderAll(); renderShelf();
   } else if(id==='ciShow'){ scrim.classList.remove('show'); showCheckin();
   } else if(id==='newProgBtn'){
     if(!confirm('Archive this cycle and restart at Week 1? Your stats and PR bests carry over; old logs are kept as a backup.')) return;
@@ -967,36 +1005,29 @@ function volOf(sets){ let v=0,a=false; for(const s of sets){ if(s.w>0&&s.r>0){ v
 
 async function exPoints(){
   const m=PMETRICS[progState.metric];
-  const occ=(EX_INDEX[progState.sel.name]||[]).slice().sort((a,b)=>a.wk-b.wk);
-  const pts=[];
-  for(const o of occ){ const log=await loadDay(o.wk,o.day); const rec=log[o.exIdx];
-    if(!rec||!rec.sets) continue; const sets=parseSets(rec.sets); const v=m.calc(sets);
-    if(v!=null&&!isNaN(v)) pts.push({label:'Wk '+o.wk, wk:o.wk, v, sets}); }
-  return pts;
+  const key=progState.sel.key||EH.key(EH.identity({ex:progState.sel.name}));
+  return (await historyEntries()).filter(e=>e.ex.historyKey===key).map(e=>{
+    const sets=parseSets(e.rec.sets); return {label:'Wk '+e.wk,wk:e.wk,v:m.calc(sets),sets};
+  }).filter(p=>p.v!=null&&!isNaN(p.v));
 }
-async function groupPoints(){
-  const occ=GROUP_INDEX[progState.sel.name]||[];
-  const perWeek={}, sched={};   // wk -> {name:vol}  ;  wk -> Set(scheduled names)
-  for(const o of occ){
-    const name=DATA.weeks[o.wk-1].days[o.day][o.exIdx].ex;
-    (sched[o.wk]||(sched[o.wk]=new Set())).add(name);
-    const log=await loadDay(o.wk,o.day); const rec=log[o.exIdx];
-    if(!rec||!rec.sets) continue; const v=volOf(parseSets(rec.sets));
-    if(v>0)(perWeek[o.wk]||(perWeek[o.wk]={}))[name]=((perWeek[o.wk]||{})[name]||0)+v;
+async function volumePoints(group){
+  const perWeek={},sched={};
+  for(const w of DATA.weeks) for(const day of PDAYS){
+    const log=await loadDay(w.n,day);
+    (w.days[day]||[]).forEach((planned,i)=>{const id=EH.identity(planned,log[i]);
+      if(!group||id.group===group) (sched[w.n]||(sched[w.n]=new Set())).add(EH.key(id)); });
   }
-  return likeForLikePoints(perWeek, sched);
+  for(const e of await historyEntries()){
+    if(group&&e.ex.group!==group) continue;
+    const name=e.ex.historyKey;
+    (sched[e.wk]||(sched[e.wk]=new Set())).add(name);
+    const v=volOf(parseSets(e.rec.sets));
+    if(v>0) (perWeek[e.wk]||(perWeek[e.wk]={}))[name]=((perWeek[e.wk]||{})[name]||0)+v;
+  }
+  return likeForLikePoints(perWeek,sched);
 }
-// whole-body weekly volume = w*r summed across every logged movement (all 3 program days)
-async function fullPoints(){
-  const perWeek={}, sched={};
-  for(let wk=1;wk<=12;wk++){ for(const day of PDAYS){
-    const exs=DATA.weeks[wk-1].days[day]; const log=await loadDay(wk,day);
-    exs.forEach((ex,i)=>{ (sched[wk]||(sched[wk]=new Set())).add(ex.ex);
-      const rec=log[i]; if(!rec||!rec.sets) return; const v=volOf(parseSets(rec.sets));
-      if(v>0)(perWeek[wk]||(perWeek[wk]={}))[ex.ex]=((perWeek[wk]||{})[ex.ex]||0)+v; });
-  }}
-  return likeForLikePoints(perWeek, sched);
-}
+async function groupPoints(){ return volumePoints(progState.sel.name); }
+async function fullPoints(){ return volumePoints(); }
 // Build weekly points. If the latest week is still in progress (some scheduled
 // lifts not logged yet), restrict every week to the lifts already done this week
 // so upcoming lifts don't drag the current point down. Reverts to full totals
@@ -1116,24 +1147,16 @@ function ovColumn(pt){
 }
 // Every movement's latest logged week vs the one before — the at-a-glance progress board.
 async function overviewData(){
-  const m=PMETRICS[progState.metric];
-  const order=PDAYS, dayLabel={mon:'Monday',wed:'Wednesday',fri:'Friday'};
-  const byDay={}; PDAYS.forEach(d=>byDay[d]=[]);
-  for(const day of order){
-    const names=[], seen=new Set();
-    for(let wk=1;wk<=12;wk++){ const exs=(DATA.weeks[wk-1]&&DATA.weeks[wk-1].days[day])||[];
-      exs.forEach(ex=>{ if(!seen.has(ex.ex)){seen.add(ex.ex);names.push(ex.ex);} }); }
-    for(const name of names){
-      const occ=(EX_INDEX[name]||[]).filter(o=>o.day===day).sort((a,b)=>a.wk-b.wk);
-      const pts=[];
-      for(const o of occ){ const log=await loadDay(o.wk,o.day); const rec=log[o.exIdx];
-        if(!rec||!rec.sets) continue; const sets=parseSets(rec.sets); const v=m.calc(sets);
-        if(v==null||isNaN(v)) continue; pts.push({wk:o.wk, v, top:topSet(sets), sets}); }
-      if(!pts.length) continue;
-      byDay[day].push({name, cur:pts[pts.length-1], prev:pts.length>1?pts[pts.length-2]:null});
-    }
+  const m=PMETRICS[progState.metric], order=PDAYS, dayLabel={mon:'Monday',wed:'Wednesday',fri:'Friday'};
+  const byDay={}, grouped=new Map(); order.forEach(d=>byDay[d]=[]);
+  for(const e of await historyEntries()){
+    const sets=parseSets(e.rec.sets), v=m.calc(sets); if(v==null||isNaN(v)) continue;
+    const key=e.day+'|'+e.ex.historyKey;
+    if(!grouped.has(key)) grouped.set(key,{day:e.day,name:e.ex.historyLabel,pts:[]});
+    grouped.get(key).pts.push({wk:e.wk,v,top:topSet(sets),sets});
   }
-  return {byDay, m, order, dayLabel};
+  for(const {day,name,pts} of grouped.values()) byDay[day].push({name,cur:pts[pts.length-1],prev:pts.length>1?pts[pts.length-2]:null});
+  return {byDay,m,order,dayLabel};
 }
 function overviewBoard(data){
   const {byDay,m,order,dayLabel}=data;
@@ -1294,14 +1317,14 @@ async function exportWeekImage(){
   for(const dk of PDAYS){
     const exs=wkObj.days[dk]||[]; if(!exs.length) continue;
     const dm=DAYS.find(x=>x.k===dk), log=await loadDay(wk,dk);
-    const rows=exs.map((ex,i)=>{ const rec=log[i]; let t=null;
+    const rows=sessionEntries(exs,log).map(({ex,rec})=>{ let t=null;
       if(rec){
         // only count sets the user actually confirmed — not pre-filled/planned weights
         const doneSets=(rec.sets||[]).filter(s=>s&&s.done);
         if(doneSets.length) t=topSet(parseSets(doneSets));
         else if(rec.done) t=topSet(parseSets(rec.sets||[])); // legacy: movement done, no per-set flags
       }
-      return {name:ex.ex, plan:`${ex.sets} × ${ex.reps}`, top:t}; });
+      return {name:ex.historyLabel, plan:`${ex.sets} × ${ex.reps}`, top:t}; });
     days.push({k:dk, typ:dm.typ, rows});
   }
   if(!days.length){ alert('Nothing to share for this week yet.'); return; }
@@ -1379,7 +1402,7 @@ async function recoveryData(){
       const at=Date.parse(fin.at); if(isNaN(at)) continue;
       const exs=(DATA.weeks[wk-1]&&DATA.weeks[wk-1].days[day])||[]; const log=await loadDay(wk,day);
       const load={}, moves={};
-      exs.forEach((ex,i)=>{ const map=EX_MUSCLE[ex.ex]; if(!map) return; const rec=log[i]; let eff=0;
+      sessionEntries(exs,log).forEach(({ex,rec})=>{ const map=EX_MUSCLE[ex.ex]; if(!map) return; let eff=0;
         if(rec&&rec.sets) rec.sets.forEach(s=>{ const w=parseFloat(s.w),r=parseFloat(s.r); if(w>0&&r>0) eff++; });
         if(eff===0){ if(rec&&rec.done) eff=ex.sets||3; else return; }
         for(const m in map){ const amt=eff*map[m]; load[m]=(load[m]||0)+amt;
@@ -1533,7 +1556,7 @@ async function trainingBalanceData(){
   for(let wk=1;wk<=12;wk++){
     for(const day of PDAYS){
       const log=await loadDay(wk,day); const exs=(DATA.weeks[wk-1]&&DATA.weeks[wk-1].days[day])||[];
-      exs.forEach((ex,i)=>{ const map=EX_MUSCLE[ex.ex]; if(!map) return; const rec=log[i]; if(!rec||!rec.sets) return;
+      sessionEntries(exs,log).forEach(({ex,rec})=>{ const map=EX_MUSCLE[ex.ex]; if(!map) return; if(!rec||!rec.sets) return;
         let eff=0; rec.sets.forEach(s=>{ const w=parseFloat(s.w),r=parseFloat(s.r); if(w>0&&r>0) eff++; });
         if(eff===0){ if(rec.done) eff=ex.sets||3; else return; }
         for(const m in map) add(wk, m, eff*map[m], ex.ex); });
@@ -1614,7 +1637,7 @@ async function renderProg(){
   const metricSel=document.getElementById('metricSel');
   metricSel.style.display = noMetric?'none':'';
   const expBtn=document.getElementById('expBtn'); if(expBtn) expBtn.style.display = type==='all'?'':'none';
-  document.getElementById('exSel').innerHTML=`${progState.sel.name} <span class="car">▾</span>`;
+  document.getElementById('exSel').innerHTML=`${esc(progState.sel.name)} <span class="car">▾</span>`;
   if(!noMetric) metricSel.innerHTML=`${PMETRICS[progState.metric].name} <span class="car">▾</span>`;
   const cur=document.getElementById('curVal'), pr=document.getElementById('prVal'), upd=document.getElementById('curUpd');
   const lbls=document.querySelectorAll('.bcStats .bcLbl');
@@ -1655,6 +1678,7 @@ async function renderProg(){
     renderGroupHist(pts);
   } else {
     const m=PMETRICS[progState.metric]; const pts=await exPoints();
+    const carried=progState.metric==='1rm'?(await loadBaseline()).exBest[progState.sel.key||EH.key(EH.identity({ex:progState.sel.name}))]:null;
     lbls[0].textContent='Latest'; lbls[1].textContent='Best';
     const uSuffix=' '+m.unit; let prIdx=-1;
     if(pts.length){
@@ -1664,8 +1688,8 @@ async function renderProg(){
       upd.textContent='Latest: Week '+last.wk;
       if(prev){ const diff=last.v-prev.v, good=diff>0; const ar=diff<0?'↓':diff>0?'↑':'→';
         cur.innerHTML+=` <span class="delta ${diff===0?'':(good?'good':'bad')}">${ar}${Math.abs(diff).toFixed(m.dec)}</span>`; }
-      pr.innerHTML=`${best.toFixed(m.dec)}<span class="bcUnit">${uSuffix}</span>`;
-    } else { cur.textContent='–'; pr.textContent='–'; upd.textContent=''; }
+      pr.innerHTML=`${Math.max(best,carried||0).toFixed(m.dec)}<span class="bcUnit">${uSuffix}</span>`;
+    } else { cur.textContent='–'; pr.textContent=carried?Math.round(carried)+' lb':'–'; upd.textContent=carried?'Best carried from a previous cycle':''; }
     document.getElementById('chartbox').innerHTML=barChartSVG(pts, prIdx, m);
     renderExHist(pts);
   }
@@ -1693,7 +1717,7 @@ function renderGroupHist(pts){
     const pct = base>0? (p.v-base)/base*100 : 0; const sign=pct>0?'+':'';
     return `<div class="hrow${i===0?' first':''}"><div class="hd">Wk ${p.wk}</div><div class="hv">${Math.round(p.v).toLocaleString()} lb<span style="color:var(--ovl)">  ·  ${sign}${pct.toFixed(0)}% vs Wk ${pts[0].wk}</span></div></div>`;
   }).join('');
-  el.innerHTML=`<div class="lcTtl">Week by week · ${progState.sel.name} volume</div>`+rows;
+  el.innerHTML=`<div class="lcTtl">Week by week · ${esc(progState.sel.name)} volume</div>`+rows;
 }
 
 document.getElementById('metricSel').onclick=()=>{
@@ -1703,38 +1727,26 @@ document.getElementById('metricSel').onclick=()=>{
   scrim.classList.add('show');
 };
 // set of exercise names that have at least one logged set (weight or reps)
-async function exDataSet(){
-  const set=new Set();
-  let all={}; try{ all=await gatherAll(); }catch(_){}
-  for(const k in all){ const m=k.match(/^bts:log:w(\d+):(\w+)$/); if(!m) continue;
-    const exs=(DATA.weeks[+m[1]-1]&&DATA.weeks[+m[1]-1].days[m[2]])||[]; const log=all[k]||{};
-    exs.forEach((ex,i)=>{ const rec=log[i]; if(!rec||!rec.sets) return;
-      if(rec.sets.some(st=>st&&((st.w&&st.w!=='')||(st.r&&st.r!=='')))) set.add(ex.ex); }); }
-  return set;
-}
+async function exDataSet(){ return new Set((await historyEntries()).filter(e=>hasLoggedSets(e.rec)).map(e=>e.ex.historyKey)); }
 const dot=have=> have?'<i class="dbadge" title="has logged data"></i>':'';
 document.getElementById('exSel').onclick=async()=>{
-  const data=await exDataSet();
-  const groupHas=g=>(GROUP_INDEX[g]||[]).some(o=>{ const ex=DATA.weeks[o.wk-1].days[o.day][o.exIdx]; return ex&&data.has(ex.ex); });
-  let html=`<div class="grab"></div><h2>What do you want to track?</h2>`;
-  html+=`<div class="pickhint">${dot(true)} have logged data</div>`;
-  html+=`<h3>Overview</h3>`;
-  html+=`<button class="mopt" data-all="1">All movements<span>${dot(data.size>0)}week vs week</span></button>`;
-  html+=`<button class="mopt" data-full="1">Full Body<span>${dot(data.size>0)}total volume</span></button>`;
-  html+=`<h3>Muscle groups</h3>`;
-  GROUP_ORDER.forEach(g=>{ if(GROUP_INDEX[g]) html+=`<button class="mopt" data-group="${g}">${g}<span>${dot(groupHas(g))}rollup</span></button>`; });
-  const seen=new Set();
-  for(const [bn,wk] of [['Foundation',1],['Ramping',6]]){
-    html+=`<h3>${bn} block — movements</h3>`;
-    const wkObj=DATA.weeks[wk-1];
-    for(const dk of PDAYS){
-      wkObj.days[dk].forEach(ex=>{ if(seen.has(ex.ex)) return; seen.add(ex.ex);
-        html+=`<button class="mopt exopt" data-ex="${ex.ex.replace(/"/g,'&quot;')}">${ex.ex}<span>${dot(data.has(ex.ex))}${dk.toUpperCase()}</span></button>`; });
-    }
+  const entries=await historyEntries(), data=await exDataSet(), choices=new Map();
+  DATA.weeks.forEach(w=>PDAYS.forEach(d=>(w.days[d]||[]).forEach(ex=>{ const id=EH.identity(ex); choices.set(EH.key(id),{label:EH.label(id),group:id.group}); })));
+  entries.forEach(e=>choices.set(e.ex.historyKey,{label:e.ex.historyLabel,group:e.ex.group}));
+  for(const key of Object.keys((await loadBaseline()).exBest)){ if(!key.startsWith('exercise:')) continue;
+    try{ const [name,equipment,label]=JSON.parse(key.slice(9)); choices.set(key,{label:EH.label({name,equipment,label})}); }catch(_){}
   }
+  let html='<div class="grab"></div><h2>What do you want to track?</h2><div class="pickhint">'+dot(true)+' have logged data</div>';
+  html+='<button class="mopt" data-all="1">All movements</button><button class="mopt" data-full="1">Full Body volume</button><h3>Muscle groups</h3>';
+  GROUP_ORDER.forEach(g=>{ html+=`<button class="mopt" data-group="${g}">${g}</button>`; });
+  html+='<h3>Exercises &amp; equipment</h3>';
+  [...choices].sort((a,b)=>a[1].label.localeCompare(b[1].label)).forEach(([key,c])=>{
+    html+=`<button class="mopt exopt" data-history="${esc(key).replace(/"/g,'&quot;')}" data-label="${esc(c.label).replace(/"/g,'&quot;')}">${esc(c.label)}<span>${dot(data.has(key))}</span></button>`;
+  });
   sheet.innerHTML=html; scrim.classList.add('show');
 };
 sheet.addEventListener('click',e=>{
+  const hist=e.target.closest('[data-history]'); if(hist){ progState.sel={type:'ex',name:hist.dataset.label,key:hist.dataset.history}; scrim.classList.remove('show'); renderProg(); return; }
   const pm=e.target.closest('[data-pm]'); if(pm){ progState.metric=pm.dataset.pm; scrim.classList.remove('show'); renderProg(); return; }
   const al=e.target.closest('[data-all]'); if(al){ progState.sel={type:'all',name:'All movements'}; scrim.classList.remove('show'); renderProg(); return; }
   const fb=e.target.closest('[data-full]'); if(fb){ progState.sel={type:'full',name:'Full Body'}; scrim.classList.remove('show'); renderProg(); return; }
@@ -1810,18 +1822,19 @@ function isDirty(){ return llGet('ll:dirty')==='1'; }
 
 async function localKeys(){ try{ const r=await window.storage.list('bts:',false); return (r&&r.keys)||[]; }catch(_){ return []; } }
 async function localHasData(){ return (await localKeys()).length>0; }
-async function clearLocal(){ for(const k of await localKeys()){ try{ await window.storage.delete(k,false); }catch(_){} } }
+async function clearLocal(){ await flushDayWrites(); for(const k of await localKeys()){ try{ await window.storage.delete(k,false); }catch(_){} } }
 
 let pushTimer=null;
 function scheduleCloudPush(){ if(!LL_USER) return; setDirty(); clearTimeout(pushTimer); pushTimer=setTimeout(flushCloud,1200); }
 async function flushCloud(){
-  if(!LL_USER) return;
-  let blob; try{ blob=JSON.stringify(await gatherAll()); }catch(_){ return; }
+  const user=LL_USER; if(!user) return true;
+  let blob; try{ blob=JSON.stringify(await gatherAll()); }catch(_){ return false; }
   try{
     const res=await fetch('/api/state',{method:'PUT',headers:{'content-type':'application/json'},
-      body:JSON.stringify({user:LL_USER,data:blob})});
-    if(res&&res.ok) clearDirty();
+      body:JSON.stringify({user,data:blob})});
+    if(res&&res.ok){ if(LL_USER===user) clearDirty(); return true; }
   }catch(_){ /* offline — stay dirty, retry on next change / online / open */ }
+  return false;
 }
 async function cloudPull(){
   if(!LL_USER) return false;
@@ -1890,17 +1903,16 @@ function hideSignin(){ document.getElementById('signin').classList.remove('show'
 
 /* ===== program cycles: archive old logs, carry stat baselines, start fresh ===== */
 async function loadBaseline(){
-  try{ const r=await window.storage.get('bts:base:summary',false); if(r&&r.value){ const o=JSON.parse(r.value); o.exBest=o.exBest||{}; return o; } }catch(_){}
+  try{ const r=await window.storage.get('bts:base:summary',false); if(r&&r.value){ const o=JSON.parse(r.value); o.exBest=EH.baselineMap(o.exBest); o.lastSets=EH.baselineMap(o.lastSets); return o; } }catch(_){}
   return {exBest:{}, volume:0, prs:0, cycles:0};
 }
-async function saveBaseline(b){ try{ await window.storage.set('bts:base:summary', JSON.stringify(b), false); }catch(_){} }
+async function saveBaseline(b){ await window.storage.set('bts:base:summary', JSON.stringify(b), false); }
 // Summarise a set of logs (best est-1RM per movement, lifetime volume, total PRs) via a program.
 function summariseLogs(logs, program){
-  const nameAt=(wk,day,idx)=>{ const w=program.weeks[wk-1]; const exs=w&&w.days[day]; const ex=exs&&exs[idx]; return ex?ex.ex:null; };
   const dayRank={mon:0,wed:1,fri:2,sat:3};
   let volume=0; const weekBest={}, lastSets={}, lastRank={};
   for(const k in logs){ const m=k.match(/^bts:log:w(\d+):(\w+)$/); if(!m) continue; const wk=+m[1], day=m[2], log=logs[k]||{};
-    for(const idxs in log){ const i=+idxs, rec=log[i]; if(!rec||!rec.sets) continue; const name=nameAt(wk,day,i);
+    for(const {ex,rec} of sessionEntries((program.weeks[wk-1]?.days[day])||[],log)){ if(!rec.sets) continue; const name=ex.historyKey;
       let best=0, any=false; rec.sets.forEach(st=>{ const w=parseFloat(st.w), r=parseFloat(st.r); if(w>0&&r>0){ volume+=w*r; any=true; const e=w*(1+r/30); if(e>best) best=e; } });
       if(name&&best>0){ const kk=wk+'|'+name; if(best>(weekBest[kk]||0)) weekBest[kk]=best; }
       if(name&&any){ const rank=wk*10+(dayRank[day]||0);   // remember the most recent sets for each lift
@@ -1916,24 +1928,25 @@ function summariseLogs(logs, program){
 // Archive current logs, fold their stats into the carried baseline, clear, reset to Week 1.
 async function startNewProgram(useLegacy){
   const program = useLegacy && window.PROGRAM_LEGACY ? window.PROGRAM_LEGACY : DATA;
-  let all={}; try{ all=await gatherAll(); }catch(_){}
+  const all=await gatherAll(true);
   const logs={}; for(const k in all){ if(k.startsWith('bts:log:')) logs[k]=all[k]; }
   const sum=summariseLogs(logs, program);
-  const base=await loadBaseline();
+  const oldBase=all['bts:base:summary']||{};
+  const base={...oldBase,exBest:EH.baselineMap(oldBase.exBest),lastSets:EH.baselineMap(oldBase.lastSets)};
   for(const n in sum.exBest){ if(sum.exBest[n]>(base.exBest[n]||0)) base.exBest[n]=sum.exBest[n]; }
   base.lastSets=base.lastSets||{}; for(const n in sum.lastSets) base.lastSets[n]=sum.lastSets[n];  // newest reference per lift
   base.volume=(base.volume||0)+sum.volume; base.prs=(base.prs||0)+sum.prs; base.cycles=(base.cycles||0)+1;
   try{ base.archivedAt=new Date().toISOString(); }catch(_){}
   // keep a raw safety copy of everything we're about to clear
   const cyc=base.cycles;
-  for(const k in all){ if(/^bts:(log|fin|finwk|wed):/.test(k)){ try{ await window.storage.set('bts:arch:c'+cyc+':'+k, JSON.stringify(all[k]), false); }catch(_){} } }
+  for(const k in all){ if(/^bts:(log|fin|finwk|wed):/.test(k)){ await window.storage.set('bts:arch:c'+cyc+':'+k, JSON.stringify(all[k]), false); } }
   await saveBaseline(base);
   for(const k of await localKeys()){ if(/^bts:(log|fin|finwk|wed):/.test(k)){ try{ await window.storage.delete(k,false); }catch(_){} } }
   try{ await window.storage.set('bts:prog:v2','1',false); }catch(_){}
   state.wk=1; state.day='mon'; persistPos();
   dayCache={}; finCache={}; finWkCache={}; wedCache={}; prFiredSession.clear();
   scheduleCloudPush();
-  await renderAll(); await computePRBase();
+  await computePRBase(); await renderAll();
   return {carriedVol:base.volume, carriedPRs:base.prs};
 }
 function showProgramSwitched(res){
@@ -1957,12 +1970,12 @@ async function checkProgramMigration(synced){
 
 async function bootSync(){
   let synced=false;
-  if(isDirty()){ await flushCloud(); synced=true; }  // unpushed local work wins — push it
+  if(isDirty()){ synced=await flushCloud(); }  // unpushed local work wins — push it
   else synced=await cloudPull();                      // get latest from the cloud
   setProgram(LL_USER);                                // load this profile's program
   await checkProgramMigration(synced);                // one-time: archive old 3-day data, start anew
-  await renderAll();
   await computePRBase();
+  await renderAll();
   try{ if(document.getElementById('bodyView').style.display!=='none'){ await renderProg(); await renderShelf(); await renderRecovery(); } }catch(_){}
 }
 async function pickUser(u){
@@ -1973,7 +1986,8 @@ async function pickUser(u){
   await bootSync();
 }
 async function switchUser(){
-  await flushCloud();                   // push current user's pending changes first
+  if(!await flushCloud()){ alert('Could not sync your log. Stay on this profile and try switching again when online.'); return; }
+  clearTimeout(pushTimer);
   await clearLocal();
   dayCache={}; finCache={}; finWkCache={}; wedCache={}; prFiredSession.clear(); PR_BASE={}; clearDirty();
   LL_USER=null; llDel('ll:user');
