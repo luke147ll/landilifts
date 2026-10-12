@@ -4,7 +4,7 @@ const fs=require('node:fs');
 const vm=require('node:vm');
 function app(){
   const noop=()=>{};
-  const element=()=>({children:[],style:{},classList:{add:noop,remove:noop,toggle:noop,contains:()=>false},addEventListener:noop,querySelector:()=>element(),querySelectorAll:()=>[],append(...nodes){this.children.push(...nodes);},appendChild(node){this.children.push(node);},setAttribute:noop,remove:noop,focus:noop});
+  const element=()=>({children:[],listeners:{},style:{},classList:{add:noop,remove:noop,toggle:noop,contains:()=>false},addEventListener(type,fn){this.listeners[type]=fn;},querySelector:()=>element(),querySelectorAll:()=>[],append(...nodes){this.children.push(...nodes);},appendChild(node){this.children.push(node);},setAttribute:noop,remove:noop,focus:noop});
   const store=new Map();
   const localStorage={getItem:k=>store.get(k)??null,setItem:(k,v)=>store.set(k,String(v)),removeItem:k=>store.delete(k),key:i=>[...store.keys()][i],get length(){return store.size}};
   const c=vm.createContext({console,localStorage,document:{getElementById:()=>element(),querySelector:()=>element(),querySelectorAll:()=>[],createElement:element,addEventListener:noop},navigator:{},setTimeout:()=>1,clearTimeout:noop,setInterval:()=>1,clearInterval:noop,alert:noop,confirm:()=>true,fetch:async()=>({ok:true}),URL,Blob});
@@ -13,6 +13,16 @@ function app(){
   return {run:code=>vm.runInContext(code.includes("await") && !code.startsWith("(async") ? "(async()=> ("+code+"))()" : code,c),store,c};
 }
 const setup=`const planned=DATA.weeks[0].days.mon[0]; const original=EH.identity(planned); const leg=EH.identity({ex:'Leg Press'}); const db=EH.identity({ex:'DB Walking Lunge'});`;
+test('rep picker leaves suggestions unlogged and saves an explicit choice only to its set',async()=>{
+ const {run,store}=app();run(setup);
+ run(`const repControl=makeRepsStepper(0,planned,0,'8');const repSelect=repControl.children[0];`);
+ assert.equal(run(`liveRec(0).sets.length`),0);assert.equal(store.size,0);
+ run(`repSelect.value='12';repSelect.listeners.change();`);
+ await run('flushDayWrites()');
+ assert.deepEqual(JSON.parse(store.get('bts:log:w1:mon'))[0].sets,[{r:'12'}]);
+ run(`repSelect.value='custom';repSelect.listeners.change();repControl.children[1].children[2].onclick();`);
+ assert.equal(run('liveRec(0).sets[0].r'),'12');
+});
 test('record book compares same-rep milestones, ignores gaps and repeated or lower sets',async()=>{
  const {run,store}=app();run(setup);
  run(`dayCache[keyFor(1,'mon')]={0:{sets:[{w:'186',r:'8'},{w:'176',r:'8'},{w:'140',r:'12'}]}};

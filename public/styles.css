@@ -56,6 +56,14 @@ body{background:var(--base);color:var(--text);font-family:var(--body);font-size:
   padding-bottom:env(safe-area-inset-bottom)}
 a{color:inherit}
 button{font-family:var(--body);cursor:pointer;border:none;background:none;color:inherit}
+button,select,input,.wplate,.splate{touch-action:manipulation}
+.rep-picker{min-width:0}
+.rep-select{width:100%;min-height:48px;padding:10px 12px;border:1px solid var(--s1);border-radius:10px;background:var(--crust);color:var(--sub);font:16px var(--body)}
+.rep-select.touched{color:var(--text)}
+.rep-custom{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.rep-custom[hidden],.rep-select[hidden]{display:none}
+.rep-custom input{width:100%;min-width:0;min-height:48px;padding:10px;border:1px solid var(--s1);border-radius:10px;background:var(--crust);color:var(--text);font:16px var(--body)}
+.rep-custom button{min-height:44px;padding:8px 12px;background:var(--s0);border-radius:8px;font-size:13px}
 .wrap{max-width:760px;margin:0 auto;padding:0 14px 120px}
 
 /* ---------- Header ---------- */

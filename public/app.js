@@ -289,25 +289,42 @@ function makeWeightStepper(idx, ex, s, resType, prefill, onType){
   wrap.append(top,ctrl,chips); return wrap;
 }
 
-// ---- reps Stepper ----
+// Native select uses the platform picker (including the iPhone wheel).
+// Suggestions stay unlogged until the user explicitly chooses a value.
 function makeRepsStepper(idx, ex, s, prefill){
-  const wrap=el('div','stepper');
-  const minus=el('button','sbtn','−'), plus=el('button','sbtn','+'), plate=el('div','splate');
+  const wrap=el('div','rep-picker');
+  const picker=el('select','rep-select'), custom=el('div','rep-custom');
+  picker.setAttribute('aria-label',`Reps for ${ex.ex}, set ${s+1}`);
   const get=()=>{ const sv=(liveRec(idx).sets||[])[s]||{}; return (sv.r!==undefined&&sv.r!==''&&sv.r!=null); };
   const cur=()=>{ const sv=(liveRec(idx).sets||[])[s]||{}; return get()? Number(sv.r) : (prefill!=null?Number(prefill):0); };
-  function draw(){ const t=get(); plate.classList.toggle('touched',t);
-    plate.innerHTML=`<span class="snum">${t?esc(String(cur())):(prefill!=null?esc(String(prefill)):'–')}</span><span class="sunit">reps</span>`; }
-  function commit(n){ if(n<0)n=0; if(n>999)n=999; setField(idx,ex,s,'r',String(n)); draw(); }
-  plate.addEventListener('click',()=>{
-    if(plate.querySelector('input')) return;
-    plate.innerHTML=`<input inputmode="numeric" value="${get()?esc(String(cur())):''}"><span class="sunit">reps</span>`;
-    const inp=plate.querySelector('input'); inp.focus(); inp.select();
-    const fin=()=>{ const v=inp.value.trim(); if(v!=='') setField(idx,ex,s,'r',String(Number(v)||0)); draw(); };
-    inp.addEventListener('blur',fin);
-    inp.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); inp.blur(); } });
+  function draw(){
+    const touched=get(),value=cur();
+    picker.innerHTML='';
+    const add=(v,label)=>{const option=el('option');option.textContent=label;option.value=String(v);picker.appendChild(option);};
+    add('',prefill!=null?`${prefill} reps · suggested`:'Choose reps');
+    for(let n=0;n<=100;n++) add(n,`${n} reps`);
+    if(touched&&(value>100||!Number.isInteger(value))) add(value,`${value} reps`);
+    add('custom','Type a number…');
+    picker.value=touched?String(value):'';
+    picker.classList.toggle('touched',touched);
+    picker.hidden=false;custom.hidden=true;custom.innerHTML='';
+  }
+  picker.addEventListener('change',()=>{
+    if(picker.value==='custom'){
+      picker.hidden=true;custom.hidden=false;
+      const input=el('input'),save=el('button',null,'Save'),cancel=el('button',null,'Cancel');
+      input.type='number';input.inputMode='numeric';input.min='0';input.max='999';input.step='1';input.required=true;
+      input.setAttribute('aria-label',`Type reps for ${ex.ex}, set ${s+1}`);input.value=get()?String(cur()):'';
+      save.type=cancel.type='button';
+      const commit=()=>{if(!input.reportValidity()) return;setField(idx,ex,s,'r',String(Number(input.value)));draw();picker.focus();};
+      save.onclick=commit;cancel.onclick=()=>{draw();picker.focus();};
+      input.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();commit();}else if(e.key==='Escape'){draw();picker.focus();}});
+      custom.append(input,save,cancel);input.focus();return;
+    }
+    if(picker.value==='') {draw();return;}
+    setField(idx,ex,s,'r',picker.value);draw();
   });
-  minus.onclick=()=>commit(cur()-1); plus.onclick=()=>commit(cur()+1);
-  wrap.append(minus,plate,plus); draw(); return wrap;
+  wrap.append(picker,custom);draw();return wrap;
 }
 
 // ---- Medals + achievements ----

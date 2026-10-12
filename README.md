@@ -200,3 +200,14 @@ selection, opening/back navigation, rep filtering, milestone disclosure, reload,
 and access to the retained analytics. The record book fits 390px and 320px phone
 viewports; the date is hidden at the narrowest width to keep the header within
 the screen. Production storage was not used.
+
+### Rep picker
+
+Reps now use the device's native select picker (wheel-style on supported iPhone
+browsers), with 0–100 available directly and Type a number for whole numbers up
+to 999. Merely opening or cancelling the picker does not log suggested reps.
+Choosing a number saves only that set's reps through the existing save flow.
+Custom entry validates before Save and can be cancelled. Controls use
+`touch-action: manipulation` to suppress double-tap zoom while allowing pinch
+zoom; editable fields remain at least 16px. Desktop browser checks do not
+substitute for final touch testing on a physical iPhone.
