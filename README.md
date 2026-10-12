@@ -170,6 +170,6 @@ never recalculates previously saved totals. Existing barbell/leg-press defaults
 configured starting weight is flagged instead of silently changed. Equipment
 settings travel with JSON backups, cloud records, and cycle baselines; CSV adds
 Starting weight and Loading mode columns. The field is not applied to dumbbells
-or bodyweight exercises. Five additional regression tests cover the 116 + 45 + 45
+or bodyweight exercises. Six additional regression tests cover the 116 + 45 + 45
 case, single-stack loading, lower bounds, metadata edits, persistence/rollover,
 and legacy/zero/decimal/invalid values.
