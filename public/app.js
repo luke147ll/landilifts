@@ -999,6 +999,7 @@ function validateCustomProgram(plan){
   if(!plan||plan.version!==1||!Array.isArray(plan.rules)||plan.rules.length>100) throw Error('The saved recurring plan could not be read.');
   validateProgramEdits(plan.edits||[]);
   validateWeekModes(plan.weekModes);
+  validateExerciseLibrary(plan.library);
   const ids=new Set();
   for(const rule of plan.rules){
     if(!rule||typeof rule.id!=='string'||!/^[a-zA-Z0-9-]{1,80}$/.test(rule.id)||ids.has(rule.id)||!Array.isArray(rule.versions)||!rule.versions.length) throw Error('Invalid recurring exercise.');
@@ -1063,6 +1064,7 @@ async function saveCustomRule(id,version){
     // Keep earlier revisions; an edit replaces this rule's future schedule.
     existing.versions=existing.versions.filter(v=>v.from<version.from);existing.versions.push(version);
   }else plan.rules.push({id,versions:[version]});
+  if(version.active)addLibraryExercise(plan,{...version.exercise,targetMuscle:version.exercise.targetMuscle||primaryMuscle({ex:version.exercise.name})});
   validateCustomProgram(plan);
   await window.storage.set(CUSTOM_PROGRAM_KEY,JSON.stringify(plan),false);
   scheduleCloudPush();await renderAll();
@@ -1071,7 +1073,7 @@ async function showCustomProgram(editId=null){
   let plan;try{plan=await loadCustomProgram();}catch(e){alert(e.message);return;}
   const cycle=(await loadBaseline()).cycles||0,from=programRank(cycle,state.wk,state.day);
   const existing=plan.rules.find(r=>r.id===editId),current=existing?(ruleAt(existing,from)||existing.versions[existing.versions.length-1]):null;
-  const choices=recurringExerciseChoices(pickProgram(LL_USER),plan),names=choices.map(ex=>ex.name);
+  let choices=recurringExerciseChoices(pickProgram(LL_USER),plan);const names=[...new Set(choices.map(ex=>ex.name))];
   sheet.innerHTML=`<div class="grab"></div><h2>${existing?'Edit recurring exercise':'Your recurring exercises'}</h2><p>Changes start Week ${state.wk}, ${DAYS.find(d=>d.k===state.day).dow}. Saved sets and completed sessions stay as they were. Additions repeat into the next cycle.</p>`;
   if(!existing&&plan.rules.length){
     const list=el('div','recurring-list');
@@ -1081,7 +1083,7 @@ async function showCustomProgram(editId=null){
   form.innerHTML=`<label>Exercise<input name="exercise" list="recurringNames" required maxlength="100" placeholder="e.g. High-Cable Lateral Raise"></label><datalist id="recurringNames">${names.map(n=>`<option value="${bookAttr(n)}"></option>`).join('')}</datalist><label>Equipment<select name="equipment">${RES_ORDER.map(k=>`<option value="${k}">${WRES[k].label}</option>`).join('')}</select></label><label>Machine / setup name (optional)<input name="setup" maxlength="80" placeholder="Same name shares the same PR history"></label><div class="recurring-fields"><label>Sets<input name="sets" type="number" min="1" max="10" step="1" value="3" required></label><label>Rep range<input name="reps" inputmode="text" placeholder="e.g. 10-15" required pattern="[0-9]{1,3}(-[0-9]{1,3})?"></label></div><fieldset><legend>Repeat on</legend>${PDAYS.map(d=>`<label><input type="checkbox" name="days" value="${d}"> ${DAYS.find(x=>x.k===d).dow}</label>`).join('')}</fieldset><p class="recurring-note">If this exercise and equipment are already scheduled, that day keeps its existing sets. Give different machines distinct setup names.</p><p class="recurring-error" role="alert"></p><button class="databtn" type="submit">${existing?'Save changes':'Add recurring exercise'}</button>`;
   const field=name=>form.querySelector(`[name="${name}"]`);
   const browser=el('div','recurring-browser');
-  browser.innerHTML=`<label>Filter exercises by muscle<select name="exerciseFilter"><option value="">All muscles</option>${PROGRAM_MUSCLES.map(m=>`<option>${m}</option>`).join('')}</select></label><label>Choose an exercise<select name="exerciseChoice"></select></label><p class="book-note">Browse by primary muscle, then choose a movement. You can also type your own exercise below.</p>`;
+  browser.innerHTML=`<label>Filter exercises by muscle<select name="exerciseFilter"><option value="">All muscles</option>${PROGRAM_MUSCLES.map(m=>`<option>${m}</option>`).join('')}</select></label><label>Choose an exercise<select name="exerciseChoice"></select></label><p class="book-note">Browse by primary muscle, then choose a movement. Choose + Custom exercise to build your own library. Save to the library without scheduling, or add it as recurring work.</p>`;
   form.insertBefore(browser,form.firstChild);
   const muscleLabel=el('label',null,'Primary muscle'),muscleSelect=el('select');muscleSelect.name='muscle';
   PROGRAM_MUSCLES.forEach(m=>{const option=el('option',null,m);option.value=m;muscleSelect.appendChild(option);});muscleLabel.appendChild(muscleSelect);
@@ -1090,20 +1092,34 @@ async function showCustomProgram(editId=null){
   const filter=field('exerciseFilter'),picker=field('exerciseChoice');
   function updateChoices(){
     const matches=choices.filter(ex=>!filter.value||ex.muscle===filter.value);
-    picker.innerHTML=`<option value="">${matches.length?'Choose a movement…':'No matches — type a custom exercise below'}</option>`+matches.map(ex=>`<option value="${bookAttr(ex.name)}">${esc(ex.name)}</option>`).join('');
+    picker.innerHTML=`<option value="custom">+ Custom exercise</option><option value="" selected>${matches.length?'Choose a movement…':'No matches — type a custom exercise below'}</option>`+matches.map(ex=>`<option value="${bookAttr(ex.key)}">${esc(ex.name)} · ${esc(WRES[ex.equipment].label)}${ex.label?' · '+esc(ex.label):''}</option>`).join('');
   }
   filter.value=current?muscleSelect.value:'';updateChoices();
   filter.addEventListener('change',updateChoices);
   picker.addEventListener('change',()=>{
-    const selected=choices.find(ex=>ex.name===picker.value);if(!selected)return;
-    if(field('exercise').value!==selected.name)field('setup').value='';
+    if(picker.value==='custom'){field('exercise').value='';field('setup').value='';muscleSelect.value=filter.value||'Other';field('exercise').focus();return;}
+    const selected=choices.find(ex=>ex.key===picker.value);if(!selected)return;
+    field('setup').value=selected.label||'';
     field('exercise').value=selected.name;field('equipment').value=selected.equipment;muscleSelect.value=selected.muscle;
   });
   if(current){field('exercise').value=current.exercise.name;field('equipment').value=current.exercise.equipment;field('setup').value=current.exercise.label;field('sets').value=current.sets;field('reps').value=current.reps;}
   form.querySelectorAll('[name="days"]').forEach(c=>c.checked=(current?.days||[state.day]).includes(c.value));
   field('exercise').addEventListener('change',()=>{if(!existing)field('equipment').value=resTypeFor(field('exercise').value);});
-  field('exercise').addEventListener('change',()=>{muscleSelect.value=primaryMuscle({ex:field('exercise').value});});
+  field('exercise').addEventListener('change',()=>{if(picker.value!=='custom')muscleSelect.value=primaryMuscle({ex:field('exercise').value});});
   const error=form.querySelector('.recurring-error');let saving=false;
+  const libraryButton=el('button','databtn','Save exercise to library');libraryButton.type='button';
+  const libraryStatus=el('p','book-note');libraryStatus.setAttribute('role','status');
+  form.insertBefore(libraryButton,form.querySelector('.recurring-fields'));form.insertBefore(libraryStatus,form.querySelector('.recurring-fields'));
+  libraryButton.onclick=async()=>{
+    if(saving)return;saving=true;form.querySelectorAll('button').forEach(b=>b.disabled=true);libraryStatus.textContent='';error.textContent='';
+    try{
+      const exercise={name:field('exercise').value,equipment:field('equipment').value,label:field('setup').value,targetMuscle:muscleSelect.value};
+      plan=await saveLibraryExercise(exercise);choices=recurringExerciseChoices(pickProgram(LL_USER),plan);filter.value=muscleSelect.value;updateChoices();picker.value=EH.key(exercise);
+      libraryStatus.textContent='Saved to your library. No workout days or logged sets were changed.';
+    }catch(e){error.textContent=e.message||'Could not save exercise.';}
+    finally{saving=false;form.querySelectorAll('button').forEach(b=>b.disabled=false);}
+  };
+
   async function apply(active){
     if(saving)return;
     const exercise={name:field('exercise').value.trim().replace(/\s+/g,' '),equipment:field('equipment').value,label:field('setup').value.trim().replace(/\s+/g,' ')};

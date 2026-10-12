@@ -369,3 +369,27 @@ test('recurring catalog offers glute movements, deduplicates names and includes 
  const {run}=app();run(customSetup);
  assert.equal(run(`(()=>{const choices=recurringExerciseChoices(pickProgram(null),customPlan),glutes=choices.filter(ex=>ex.muscle==='Glutes');return glutes.some(ex=>ex.name==='Machine Hip Abduction')&&glutes.some(ex=>ex.name==='Barbell Hip Thrust'&&ex.equipment==='plates')&&glutes.some(ex=>ex.name==='DB Glute Bridge'&&ex.equipment==='dumbbell')&&choices.some(ex=>ex.name==='DB Lateral Raise'&&ex.muscle==='Side delts')&&choices.every(ex=>RES_ORDER.includes(ex.equipment))&&new Set(choices.map(ex=>ex.name)).size===choices.length&&!glutes.some(ex=>ex.name==='Barbell Bench Press');})()`),true);
 });
+
+test('library-only save survives reload and backup without creating schedules or logs',async()=>{
+ const {run,store}=app();
+ await run("saveLibraryExercise({name:'Custom glute press',equipment:'machine',label:'Gym A',targetMuscle:'Glutes'})");
+ assert.equal(run("JSON.parse(localStorage.getItem(CUSTOM_PROGRAM_KEY)).rules.length"),0);
+ assert.equal([...store.keys()].some(k=>k.startsWith('bts:log:')),false);
+ assert.equal(await run("(async()=>{const plan=await loadCustomProgram();return recurringExerciseChoices(pickProgram(null),plan).some(ex=>ex.name==='Custom glute press'&&ex.label==='Gym A'&&ex.muscle==='Glutes');})()"),true);
+ assert.equal(await run("(async()=>{const backup=await gatherAll();return backup[CUSTOM_PROGRAM_KEY].library.length;})()"),1);
+});
+test('library updates exact setups while keeping different equipment and setup histories separate',async()=>{
+ const {run}=app();
+ for(const [equipment,label,muscle] of [['machine','A','Glutes'],['machine','B','Glutes'],['dumbbell','A','Glutes'],['machine','A','Quads']])await run(`saveLibraryExercise({name:'Custom press',equipment:'${equipment}',label:'${label}',targetMuscle:'${muscle}'})`);
+ assert.equal(await run("(async()=>{const plan=await loadCustomProgram();return plan.library.length===3&&plan.library.find(ex=>ex.equipment==='machine'&&ex.label==='A').targetMuscle==='Quads';})()"),true);
+});
+test('invalid or failed library saves preserve previous data and cycle rollover retains library',async()=>{
+ const {run,c,store}=app();run('renderAll=async()=>{}');
+ await run("saveLibraryExercise({name:'Custom press',equipment:'machine',label:'A',targetMuscle:'Glutes'})");
+ const before=store.get('bts:custom:program:v1');
+ await assert.rejects(run("saveLibraryExercise({name:'',equipment:'machine',label:'',targetMuscle:'Glutes'})"));assert.equal(store.get('bts:custom:program:v1'),before);
+ await run('startNewProgram(false)');assert.equal(JSON.parse(store.get('bts:custom:program:v1')).library.length,1);
+ c.window.storage.set=async()=>{throw Error('full')};
+ await assert.rejects(run("saveLibraryExercise({name:'Second press',equipment:'machine',label:'',targetMuscle:'Glutes'})"),/full/);
+ assert.equal(store.get('bts:custom:program:v1'),before);
+});

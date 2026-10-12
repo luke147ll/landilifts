@@ -14,7 +14,27 @@ function recurringExerciseChoices(program,plan){
   program.weeks.forEach(w=>PDAYS.forEach(d=>(w.days[d]||[]).forEach(ex=>add(ex.ex,primaryMuscle(ex)))));
   EXTRA_EXERCISE_CHOICES.forEach(ex=>add(ex.name,ex.muscle,ex.equipment));
   plan.rules.forEach(rule=>{const v=rule.versions.at(-1);if(v)add(v.exercise.name,primaryMuscle({ex:v.exercise.name,customIdentity:v.exercise}),v.exercise.equipment);});
-  return [...choices.values()].sort((a,b)=>a.name.localeCompare(b.name));
+  const catalog=new Map([...choices.values()].map(ex=>[EH.key({name:ex.name,equipment:ex.equipment,label:''}),{...ex,label:''}]));
+  (plan.library||[]).forEach(ex=>catalog.set(EH.key(ex),{name:ex.name,equipment:ex.equipment,label:ex.label,muscle:ex.targetMuscle}));
+  return [...catalog.entries()].map(([key,ex])=>({...ex,key})).sort((a,b)=>a.name.localeCompare(b.name)||a.key.localeCompare(b.key));
+}
+function validateExerciseLibrary(library){
+  if(library===undefined)return;
+  if(!Array.isArray(library)||library.length>500)throw Error('Invalid exercise library.');
+  const seen=new Set();
+  for(const ex of library){
+    if(!ex||typeof ex.name!=='string'||!ex.name.trim()||ex.name.length>100||!RES_ORDER.includes(ex.equipment)||typeof ex.label!=='string'||ex.label.length>80||!PROGRAM_MUSCLES.includes(ex.targetMuscle))throw Error('Enter an exercise name, equipment and primary muscle.');
+    const key=EH.key(ex);if(seen.has(key))throw Error('Duplicate exercise library entry.');seen.add(key);
+  }
+}
+function addLibraryExercise(plan,exercise){
+  const entry={...exercise,name:exercise.name.trim().replace(/\s+/g,' '),label:exercise.label.trim().replace(/\s+/g,' ')};
+  validateExerciseLibrary([entry]);
+  plan.library=(plan.library||[]).filter(ex=>EH.key(ex)!==EH.key(entry));plan.library.push(entry);
+}
+async function saveLibraryExercise(exercise){
+  const plan=await loadCustomProgram();addLibraryExercise(plan,exercise);validateCustomProgram(plan);
+  await window.storage.set(CUSTOM_PROGRAM_KEY,JSON.stringify(plan),false);scheduleCloudPush();return plan;
 }
 function primaryMuscle(ex){
   const explicit=ex.targetMuscle||ex.customIdentity?.targetMuscle;

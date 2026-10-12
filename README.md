@@ -297,3 +297,14 @@ additional glute options (hip thrusts, glute bridge and cable kickback). Choosin
 a movement fills its name, equipment and primary muscle; choosing a different
 movement clears the old setup label. Filtering alone never changes the current
 prescription. Custom names, equipment and primary targets remain editable.
+
+### Personal exercise library
+
+Choose **+ Custom exercise** in the recurring movement picker. Enter a name,
+equipment/setup and primary muscle, then **Save exercise to library** to keep it
+without scheduling any work. Adding recurring work also saves that exercise to
+the library. Entries appear in muscle filters with equipment/setup labels; an
+exact identity updates its library entry while distinct setups stay separate.
+The per-profile library uses the existing customization key, travels with
+JSON/cloud backups, and remains available across cycles and after stopping a
+recurring rule. Library-only saves never create workout logs or alter PRs.
