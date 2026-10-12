@@ -273,3 +273,18 @@ equipment identities retain separate PR histories.
 Program regression tests cover totals, stable slots, effective scope, protected
 legacy and customized sessions, restoration, completion snapshots, invalid saves,
 backup and cycle carryover. Browser checks use isolated sample data.
+
+### Optional lighter weeks
+
+Program > Week intensity offers Original schedule, Normal training, or Lighter
+week. Normal borrows regular effort/technique targets for the scheduled intro
+weeks while preserving their exercises and rep ranges. Lighter uses half the
+planned sets rounded up (minimum one), including personal extras, RPE 6–7
+(3–4 reps in reserve), and no intensity techniques or failure badges. Load is
+chosen by the lifter; saved weights are not recalculated.
+
+Choices are stored by cycle and week in the existing customization key, travel
+with backups/sync, and do not carry into a new cycle. Logged exercises and
+completed sessions keep their saved prescription. Therefore a partly logged
+week can show mixed prescriptions. Original schedule restores untouched slots.
+No defaults or suggested sets are automatically logged.

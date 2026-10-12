@@ -327,3 +327,40 @@ test('saved loading settings remain selectable in a later untouched workout',asy
  await run(`(async()=>{dayCache[keyFor(1,'mon')]={0:{exercise:{...original,baseWeight:116,perSide:true},sets:[]}};state={wk:2,day:'mon'};await showSubstitution(0,planned);})()`);
  assert.equal(run(`(()=>{const form=sheet.children[sheet.children.length-1];const saved=form.children[0].children[0];saved.value=EH.key(original);saved.onchange();const loading=form.children.find(n=>n.className==='loading-settings');return loading.children[0].children[0].value==='116'&&loading.children[1].children[0].value==='pair';})()`),true);
 });
+
+test('week modes restore normal effort and reduce extras without changing the base or adjacent weeks',()=>{
+ const {run}=app();run(customSetup);
+ assert.equal(run(`(()=>{const base=pickProgram(null),before=JSON.stringify(base),p=customizedProgram(base,{...customPlan,weekModes:{'0:1':'normal','0:2':'light'}},0);return p.weeks[0].deload===false&&p.weeks[0].days.mon[0].lrpe==='10'&&p.weeks[1].days.mon[0].sets===2&&p.weeks[1].days.mon.at(-1).sets===2&&p.weeks[1].days.mon[0].tech==='N/A'&&p.weeks[2].days.mon[0].sets===3&&JSON.stringify(base)===before;})()`),true);
+});
+test('week choices survive reload and protect logged light prescriptions when switched to normal',async()=>{
+ const {run,store}=app();run('renderAll=async()=>{}');
+ await run("saveWeekMode(2,'light')");await run('refreshCustomProgram()');run("state={wk:2,day:'mon'};liveRec(0).sets=[{w:'100',r:'8'}];queueSave(2,'mon');");await run('flushDayWrites()');
+ await run("saveWeekMode(2,'normal')");run('dayCache={}');await run('refreshCustomProgram()');
+ assert.equal(run('DATA.weeks[1].days.mon[0].sets'),2);assert.equal(run('DATA.weeks[1].days.mon[1].sets'),3);
+ assert.equal(JSON.parse(store.get('bts:log:w2:mon'))[0].sets[0].w,'100');
+ assert.equal(run("DATA.weeks[1].days.mon[0].weekMode"),'light');
+});
+test('week mode toggles do not compound reductions and preserve legacy logs and completed sessions',async()=>{
+ const {run}=app();run('renderAll=async()=>{}');
+ await run("saveWeekMode(2,'light')");await run('refreshCustomProgram()');run("state={wk:2,day:'mon'};liveRec(0);");
+ await run("saveWeekMode(2,'normal')");await run('refreshCustomProgram()');assert.equal(run('DATA.weeks[1].days.mon[0].sets'),3);
+ await run("saveWeekMode(2,'light')");await run('refreshCustomProgram()');assert.equal(run('DATA.weeks[1].days.mon[0].sets'),2);
+ assert.equal(run(`(()=>{const base=pickProgram(null),p=customizedProgram(base,{version:1,rules:[],weekModes:{'0:2':'light'}},0,{'bts:log:w2:mon':{0:{sets:[{w:'100',r:'8'}]}}},{'bts:fin:w2:wed':{at:'saved'}});return p.weeks[1].days.mon[0].sets===3&&p.weeks[1].days.mon[1].sets===2&&p.weeks[1].days.wed[0].sets===3;})()`),true);
+ await run("saveWeekMode(2,'scheduled')");await run('refreshCustomProgram()');assert.equal(run('DATA.weeks[1].days.mon[0].sets'),3);
+});
+test('week choices are cycle scoped, validated, backed up and retain the old plan on failed writes',async()=>{
+ const {run,c,store}=app();run('renderAll=async()=>{}');await run("saveWeekMode(2,'light')");
+ assert.equal(run("customizedProgram(pickProgram(null),JSON.parse(localStorage.getItem(CUSTOM_PROGRAM_KEY)),1).weeks[1].days.mon[0].sets"),3);
+ await assert.rejects(run("saveWeekMode(2,'invalid')"));
+ const prior=store.get('bts:custom:program:v1');c.window.storage.set=async()=>{throw Error('full')};
+ await assert.rejects(run("saveWeekMode(2,'normal')"),/full/);assert.equal(store.get('bts:custom:program:v1'),prior);
+});
+
+test('completed light workouts retain snapshots without creating logged sets',async()=>{
+ const {run,store}=app();run('renderAll=async()=>{}');await run("saveWeekMode(2,'light')");await run('refreshCustomProgram()');
+ await run("snapshotProgramDay(2,'mon')");await run('flushDayWrites()');
+ assert.equal(JSON.parse(store.get('bts:log:w2:mon'))[0].sets.length,0);
+ await run("window.storage.set('bts:fin:w2:mon',JSON.stringify({at:'saved'}))");run('finCache={};dayCache={}');
+ await run("saveWeekMode(2,'scheduled')");await run('refreshCustomProgram()');
+ assert.equal(run('DATA.weeks[1].days.mon[0].sets'),2);assert.equal(run('DATA.weeks[1].days.wed[0].sets'),3);
+});

@@ -55,7 +55,7 @@ function applyScheduledEdits(scheduled,edits,rank,day,log,closed){
     const rec=log[index],source=original.ex;
     if(closed&&rec?.plannedRemoved&&!hasSessionData(rec))return [];
     // Recorded prescriptions win even if the edit was later stopped or changed.
-    if(rec?.planned?.programOverride&&hasSessionData(rec)||closed&&rec?.planned?.programOverride)return [{...rec.planned,slotKey:index,programSource:source}];
+    if((rec?.planned?.programOverride||rec?.planned?.weekMode)&&(hasSessionData(rec)||closed))return [{...rec.planned,slotKey:index,programSource:source}];
     if(closed||hasSessionData(rec))return [{...original,slotKey:index,programSource:source}];
     const edit=edits.find(e=>e.day===day&&e.source===source),v=edit?ruleAt(edit,rank):null;
     if(!v?.active)return [{...original,slotKey:index,programSource:source}];
@@ -73,7 +73,7 @@ async function snapshotProgramDay(wk,day){
     if(!exs.some((row,i)=>!row.logKey&&logSlot(row,i)===index)&&!hasSessionData(log[index]))log[index]={...log[index],plannedRemoved:true};
   });
   exs.forEach((ex,i)=>{
-    if(!ex.logKey&&!ex.programOverride)return;
+    if(!ex.logKey&&!ex.programOverride&&!ex.weekMode)return;
     const slot=logSlot(ex,i),rec=log[slot]||(log[slot]={done:false,sets:[]});
     if(!hasSessionData(rec)){
       rec.planned={...ex};
@@ -87,7 +87,7 @@ function renderProgramOverview(){
   const week=DATA.weeks[state.wk-1],stats=plannedWeekStats(week),max=Math.max(1,...Object.values(stats.groups),...Object.values(stats.indirect));
   const openDays=[...root.querySelectorAll('details[open]')].map(e=>e.dataset.day);
   const shown=PROGRAM_MUSCLES.filter(m=>stats.groups[m]>0||stats.indirect[m]>0||m==='Side delts');
-  root.innerHTML=`<div class="book-heading"><h1>Your program</h1><p>Plan your week. Make room for your priorities.</p></div><label class="book-label">Program week<select id="programWeek">${DATA.weeks.map(w=>`<option value="${w.n}"${w.n===state.wk?' selected':''}>Week ${w.n}${w.deload?' · Deload':''}</option>`).join('')}</select></label><div class="program-stats"><div><strong>${stats.total}</strong><span>planned sets</span></div><div><strong>${stats.workouts}</strong><span>workouts</span></div><div><strong>${stats.movements}</strong><span>exercise slots</span></div></div><h2 class="book-section-title">Weekly sets by muscle</h2><p class="book-note">Direct = sets targeting that muscle. Indirect = sets where it assists, such as triceps during pressing. Each assisting set counts once, not as an equivalent direct set. Warm-ups excluded. Tap a muscle to see both sources.</p>${stats.unmapped?`<p class="book-note">Indirect work is not mapped for ${stats.unmapped} exercise slot${stats.unmapped===1?'':'s'} this week; those contributions are not counted.</p>`:''}<div class="program-volume-legend"><span>Muscle</span><span>Direct</span><span>Indirect</span></div><div class="program-muscles">${shown.map(m=>`<button type="button" class="program-muscle" data-muscle="${m}" aria-pressed="${programFilter===m}"><span>${m}</span><span class="program-count"><span class="program-track" aria-hidden="true"><span style="width:${stats.groups[m]/max*100}%"></span></span><strong><span class="sr-only">Direct sets: </span>${stats.groups[m]}</strong></span><span class="program-count indirect"><span class="program-track" aria-hidden="true"><span style="width:${stats.indirect[m]/max*100}%"></span></span><strong><span class="sr-only">Indirect sets: </span>${stats.indirect[m]}</strong></span></button>`).join('')}</div><div class="program-list-heading"><h2 class="book-section-title">${programFilter?esc(programFilter)+' exercises':'Your workouts'}</h2>${programFilter?'<button class="book-action" data-clear-filter>Show all</button>':''}</div><button class="add-exercise" data-program-add>+ Add / manage recurring exercises</button><div class="program-days">${stats.days.map(d=>{
+  root.innerHTML=`<div class="book-heading"><h1>Your program</h1><p>Plan your week. Make room for your priorities.</p></div><label class="book-label">Program week<select id="programWeek">${DATA.weeks.map(w=>`<option value="${w.n}"${w.n===state.wk?' selected':''}>Week ${w.n}${w.deload?' · Deload':''}</option>`).join('')}</select></label><label class="book-label">Week intensity<select id="weekIntensity"><option value="scheduled"${!week.intensityMode?' selected':''}>Original schedule${pickProgram(LL_USER).weeks[state.wk-1].deload?' · intro/deload':''}</option><option value="normal"${week.intensityMode==='normal'?' selected':''}>Normal training</option><option value="light"${week.intensityMode==='light'?' selected':''}>Lighter week</option></select></label><p class="book-note">For this week and cycle only. Lighter week uses about half the sets (rounded up), including extras, with 3–4 reps in reserve and no intensity techniques. Normal keeps regular sets and effort targets. Saved exercises and completed workouts stay unchanged; totals may include both.</p><p id="weekIntensityError" role="alert" class="recurring-error"></p><div class="program-stats"><div><strong>${stats.total}</strong><span>planned sets</span></div><div><strong>${stats.workouts}</strong><span>workouts</span></div><div><strong>${stats.movements}</strong><span>exercise slots</span></div></div><h2 class="book-section-title">Weekly sets by muscle</h2><p class="book-note">Direct = sets targeting that muscle. Indirect = sets where it assists, such as triceps during pressing. Each assisting set counts once, not as an equivalent direct set. Warm-ups excluded. Tap a muscle to see both sources.</p>${stats.unmapped?`<p class="book-note">Indirect work is not mapped for ${stats.unmapped} exercise slot${stats.unmapped===1?'':'s'} this week; those contributions are not counted.</p>`:''}<div class="program-volume-legend"><span>Muscle</span><span>Direct</span><span>Indirect</span></div><div class="program-muscles">${shown.map(m=>`<button type="button" class="program-muscle" data-muscle="${m}" aria-pressed="${programFilter===m}"><span>${m}</span><span class="program-count"><span class="program-track" aria-hidden="true"><span style="width:${stats.groups[m]/max*100}%"></span></span><strong><span class="sr-only">Direct sets: </span>${stats.groups[m]}</strong></span><span class="program-count indirect"><span class="program-track" aria-hidden="true"><span style="width:${stats.indirect[m]/max*100}%"></span></span><strong><span class="sr-only">Indirect sets: </span>${stats.indirect[m]}</strong></span></button>`).join('')}</div><div class="program-list-heading"><h2 class="book-section-title">${programFilter?esc(programFilter)+' exercises':'Your workouts'}</h2>${programFilter?'<button class="book-action" data-clear-filter>Show all</button>':''}</div><button class="add-exercise" data-program-add>+ Add / manage recurring exercises</button><div class="program-days">${stats.days.map(d=>{
     const items=d.exercises.filter(e=>!programFilter||e.muscle===programFilter||e.indirect?.includes(programFilter));
     const originals=pickProgram(LL_USER).weeks[state.wk-1].days[d.day]||[];
     const removed=originals.map((ex,index)=>({ex,index})).filter(o=>!d.exercises.some(e=>!e.ex.logKey&&(e.ex.slotKey??e.index)===o.index));
@@ -108,8 +108,9 @@ async function saveScheduledEdit(day,source,version){
 }
 async function showProgramEditor(day,index,restore=false){
   const originalList=pickProgram(LL_USER).weeks[state.wk-1].days[day]||[];
-  const current=restore?{...originalList[index],slotKey:index}:DATA.weeks[state.wk-1].days[day][index];
+  let current=restore?{...originalList[index],slotKey:index}:DATA.weeks[state.wk-1].days[day][index];
   if(!current)return;
+  if(current.normalPrescription)current={...current.normalPrescription};
   state.day=day;
   if(current.logKey){await showCustomProgram(current.logKey.slice(6));return;}
   const source=current.programSource||originalList[current.slotKey??index].ex;
@@ -145,4 +146,40 @@ document.getElementById('programView').addEventListener('click',e=>{
   if(e.target.closest('[data-program-add]')){state.day='mon';showCustomProgram();return;}
   const edit=e.target.closest('[data-program-index]');if(edit){showProgramEditor(edit.dataset.programDay,Number(edit.dataset.programIndex));return;}
   const restore=e.target.closest('[data-program-restore]');if(restore)showProgramEditor(restore.dataset.programDay,Number(restore.dataset.programRestore),true);
+});
+
+function validateWeekModes(modes){
+  if(modes===undefined)return;
+  if(!modes||typeof modes!=='object'||Array.isArray(modes)||Object.entries(modes).some(([key,value])=>!/^\d+:(?:[1-9]|1[0-2])$/.test(key)||!['normal','light'].includes(value)))throw Error('Invalid saved week intensity.');
+}
+function applyWeekModes(program,base,plan,cycle,logs,finished){
+  return {...program,weeks:program.weeks.map(w=>{
+    const mode=plan.weekModes?.[cycle+':'+w.n];
+    return {...w,intensityMode:mode||null,deload:mode?mode==='light':w.deload,days:Object.fromEntries(Object.entries(w.days).map(([day,exs])=>[day,exs.map((ex,i)=>{
+      const rec=dayRecord(logs[keyFor(w.n,day)]||{},ex,i),closed=finished['bts:fin:w'+w.n+':'+day]||finished['bts:finwk:w'+w.n];
+      if(hasSessionData(rec)||closed)return rec?.planned?.weekMode?{...rec.planned}:ex;
+      if(!mode)return ex;
+      // Keep personal prescriptions; borrow regular effort cues for scheduled intro weeks.
+      let normal={...ex};
+      if(base.weeks[w.n-1].deload&&!ex.logKey&&!ex.programOverride){
+        const regular=base.weeks.find(next=>next.n>w.n&&!next.deload)?.days[day]?.find(row=>row.ex===ex.ex);
+        if(regular)normal={...normal,erpe:regular.erpe,lrpe:regular.lrpe,tech:regular.tech};
+      }
+      return mode==='normal'?{...normal,weekMode:mode,customIdentity:normal.customIdentity||EH.identity(normal)}:
+        {...normal,sets:Math.max(1,Math.ceil(normal.sets/2)),erpe:'6–7',lrpe:'6–7',tech:'N/A',weekMode:mode,normalPrescription:normal,customIdentity:normal.customIdentity||EH.identity(normal)};
+    })]))};
+  })};
+}
+async function saveWeekMode(wk,mode){
+  if(!['scheduled','normal','light'].includes(mode))throw Error('Choose a week intensity.');
+  await flushDayWrites();const plan=await loadCustomProgram(),cycle=(await loadBaseline()).cycles||0;
+  plan.weekModes=plan.weekModes||{};const key=cycle+':'+wk;
+  if(mode==='scheduled')delete plan.weekModes[key];else plan.weekModes[key]=mode;
+  validateCustomProgram(plan);await window.storage.set(CUSTOM_PROGRAM_KEY,JSON.stringify(plan),false);
+  scheduleCloudPush();await renderAll();
+}
+document.getElementById('programView').addEventListener('change',async e=>{
+  if(e.target.id!=='weekIntensity')return;
+  const select=e.target,wk=state.wk;select.disabled=true;
+  try{await saveWeekMode(wk,select.value);}catch(error){select.value=DATA.weeks[wk-1].intensityMode||'scheduled';document.getElementById('weekIntensityError').textContent=error.message||'Could not save week intensity.';}finally{select.disabled=false;}
 });

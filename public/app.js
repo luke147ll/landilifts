@@ -145,7 +145,7 @@ function liveRec(idx){
   const k=keyFor(state.wk,state.day), dc=dayCache[k]||(dayCache[k]={});
   const planned=DATA.weeks[state.wk-1]?.days[state.day]?.[idx],slot=logSlot(planned,idx);
   const rec=dc[slot]||(dc[slot]={done:false,sets:[]});
-  if((planned?.logKey||planned?.programOverride)&&!hasSessionData(rec)){
+  if((planned?.logKey||planned?.programOverride||planned?.weekMode)&&!hasSessionData(rec)){
     rec.planned={...planned};
     if(!rec.exercise||(!rec.resType&&!rec.variants?.length))rec.exercise={...planned.customIdentity};
   }
@@ -645,6 +645,7 @@ async function renderList(){
     const card=document.createElement('div'); card.className='card';
 
     let tags=`<span class="tag"><b>${nSets}</b> × ${esc(ex.reps)} reps</span>`;
+    if(planned.weekMode==='light') tags+='<span class="tag">Lighter week · keep 3–4 reps in reserve</span>';
     if(planned.logKey||planned.programOverride) tags+=`<span class="tag">${planned.logKey?'Recurring extra':'Personal plan'}</span>`;
     else {
     if(ex.erpe) tags+=`<span class="tag">early RPE ${esc(ex.erpe)}</span>`;
@@ -725,7 +726,7 @@ async function renderList(){
         const hint=(pv&&(pv.w||pv.r))?`<span class="lasthint">${refLbl} <b>${esc(pv.w||'–')}</b> × ${esc(pv.r||'–')}</span>`:'';
         const clearBtn=hasVal?`<button class="setclear" aria-label="Clear this set" title="Clear this set">✕</button>`:'';
         const right=(hint||clearBtn)?`<span class="wtright">${hint}${clearBtn}</span>`:'';
-        const ws=el('div','workset',`<div class="worktop"><span class="sn${last?' last':''}">Set ${s+1}</span>${last&&!planned.logKey&&!planned.programOverride?'<span class="failpill">FAILURE</span>':''}${right}</div>`);
+        const ws=el('div','workset',`<div class="worktop"><span class="sn${last?' last':''}">Set ${s+1}</span>${last&&!planned.logKey&&!planned.programOverride&&String(ex.lrpe)==='10'&&planned.weekMode!=='light'?'<span class="failpill">FAILURE</span>':''}${right}</div>`);
         const cb=ws.querySelector('.setclear');
         if(cb) cb.addEventListener('click',async()=>{ const r=liveRec(idx); if(r.sets&&r.sets[s]) r.sets[s]={};
           recomputeMovementDone(); queueSave(state.wk,state.day); await computePRBase(); renderSets(); refreshCounts(); refreshDone(); });
@@ -859,8 +860,8 @@ function guideHTML(){ return `
   <div class="schrow"><div class="d" style="color:var(--fri)">Friday</div><div>Full Body B (program)</div></div>
   <div class="schrow rest"><div class="d">Sat / Sun</div><div>Rest</div></div>
   <h3>The blocks</h3>
-  <p><b>Foundation (Wk 1–5):</b> Week 1 is an intro/deload — leave reps in the tank, no failure. Weeks 2–5 hold steady volume with the last set to failure.</p>
-  <p><b>Ramping (Wk 6–12):</b> New exercises. Week 6 is an intro/deload, then volume climbs at Wk 7–8, 9–10, 11–12. After Week 12, loop back to Week 1 as your next deload.</p>
+  <p><b>Foundation (Wk 1–5):</b> Week 1 defaults to an intro/deload. In Program, choose Normal training to skip it, or Lighter week to reduce sets and effort in any week. Weeks 2–5 hold steady volume with the last set to failure.</p>
+  <p><b>Ramping (Wk 6–12):</b> New exercises. Week 6 is an intro/deload, then volume climbs at Wk 7–8, 9–10, 11–12. After Week 12, loop back to Week 1. Week choices apply only to the selected cycle; saved workouts stay unchanged.</p>
   <h3>Execution</h3>
   <p>2–4 sec negatives, explosive positives, chase the deep stretch at the bottom of every rep. Keep form identical week to week; beat last week by reps first, then load.</p>
   <h3>RPE scale</h3>
@@ -997,6 +998,7 @@ function programRank(cycle,wk,day){return cycle*1000+wk*10+PDAYS.indexOf(day);}
 function validateCustomProgram(plan){
   if(!plan||plan.version!==1||!Array.isArray(plan.rules)||plan.rules.length>100) throw Error('The saved recurring plan could not be read.');
   validateProgramEdits(plan.edits||[]);
+  validateWeekModes(plan.weekModes);
   const ids=new Set();
   for(const rule of plan.rules){
     if(!rule||typeof rule.id!=='string'||!/^[a-zA-Z0-9-]{1,80}$/.test(rule.id)||ids.has(rule.id)||!Array.isArray(rule.versions)||!rule.versions.length) throw Error('Invalid recurring exercise.');
@@ -1018,7 +1020,7 @@ async function loadCustomProgram(){
 function ruleAt(rule,rank){return rule.versions.filter(v=>v.from<=rank).sort((a,b)=>a.from-b.from).pop();}
 function customizedProgram(base,plan,cycle,logs={},finished={}){
   validateCustomProgram(plan);
-  return {...base,weeks:base.weeks.map(w=>({...w,days:Object.fromEntries(Object.entries(w.days).map(([day,scheduled])=>{
+  const result={...base,weeks:base.weeks.map(w=>({...w,days:Object.fromEntries(Object.entries(w.days).map(([day,scheduled])=>{
     if(!PDAYS.includes(day))return [day,scheduled];
     const log=logs[keyFor(w.n,day)]||{}, seen=new Set();
     const closed=finished['bts:fin:w'+w.n+':'+day]||finished['bts:finwk:w'+w.n];
@@ -1036,6 +1038,7 @@ function customizedProgram(base,plan,cycle,logs={},finished={}){
     for(const [slot,rec] of Object.entries(log)) if(slot.startsWith('extra:')&&!seen.has(slot)&&rec?.planned?.ex&&(hasSessionData(rec)||closed)) rows.push({...rec.planned,logKey:slot});
     return [day,rows];
   }))}))};
+  return applyWeekModes(result,base,plan,cycle,logs,finished);
 }
 async function refreshCustomProgram(){
   const plan=await loadCustomProgram(), logs={}, finished={};
@@ -1049,7 +1052,7 @@ async function refreshCustomProgram(){
   // reset. Explicit session equipment choices and all saved sets are retained.
   for(const w of DATA.weeks)for(const day of PDAYS)(w.days[day]||[]).forEach((ex,i)=>{
     const rec=dayRecord(logs[keyFor(w.n,day)]||{},ex,i);
-    if(rec?.planned?.programOverride&&!ex.programOverride&&!hasSessionData(rec)&&!rec.resType&&!rec.variants?.length){delete rec.planned;delete rec.exercise;}
+    if((rec?.planned?.programOverride||rec?.planned?.weekMode)&&!ex.programOverride&&!ex.weekMode&&!hasSessionData(rec)&&!rec.resType&&!rec.variants?.length){delete rec.planned;delete rec.exercise;}
   });
   buildIndexes();return plan;
 }
