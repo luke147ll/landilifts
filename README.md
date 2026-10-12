@@ -153,3 +153,23 @@ an in-memory sync endpoint: substitutions, original-set restoration, separate
 Progress rows, completion without extra sets, named setups, reload persistence,
 unchanged next-week scheduling, and a 390-pixel phone viewport. Production D1 and
 Cloudflare deployment were not used for testing.
+
+### Starting sled / machine weight
+
+The workout equipment picker now accepts a starting weight (0–10,000 lb,
+including decimals) and a loading mode: total added weight or plates per side.
+For example, configure Hack Squat as Machine, starting weight 116 lb, plates on
+each side: tapping +45 adds two plates and records 206 lb total. Reuse the named
+setup from Previously used setups. A weight stack should use total added weight;
+leave its starting weight at zero when the displayed stack weight already
+includes the machine resistance.
+
+The starting weight is calculator metadata, not a new PR identity. Editing it
+never recalculates previously saved totals. Existing barbell/leg-press defaults
+(45/118 lb) still apply when no custom value was saved. A legacy total below the
+configured starting weight is flagged instead of silently changed. Equipment
+settings travel with JSON backups, cloud records, and cycle baselines; CSV adds
+Starting weight and Loading mode columns. The field is not applied to dumbbells
+or bodyweight exercises. Five additional regression tests cover the 116 + 45 + 45
+case, single-stack loading, lower bounds, metadata edits, persistence/rollover,
+and legacy/zero/decimal/invalid values.

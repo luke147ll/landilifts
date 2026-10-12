@@ -5,8 +5,25 @@
   function identity(planned, rec = {}) {
     const saved = rec.exercise || {};
     const name = clean(saved.name) || planned.ex;
-    return {name, equipment: saved.equipment || rec.resType || resTypeFor(name),
+    return {...settings(saved), name, equipment: saved.equipment || rec.resType || resTypeFor(name),
       label: clean(saved.label), group: saved.group || window.EX_GROUP[name] || window.EX_GROUP[planned.ex] || 'Other'};
+  }
+  function settings(saved){
+    const result={};
+    if(saved.baseWeight!=='' && saved.baseWeight!=null && Number.isFinite(Number(saved.baseWeight)) && Number(saved.baseWeight)>=0 && Number(saved.baseWeight)<=10000) result.baseWeight=Number(saved.baseWeight);
+    if(typeof saved.perSide==='boolean') result.perSide=saved.perSide;
+    return result;
+  }
+  function equipmentConfig(id){
+    const cfg={...(WRES[id.equipment]||WRES.machine)};
+    if(['machine','plates','legpress'].includes(id.equipment)){
+      const saved=settings(id);
+      if(saved.baseWeight!=null) cfg.base=saved.baseWeight;
+      if(saved.perSide!=null) cfg.pair=saved.perSide;
+      if(cfg.pair && id.equipment==='machine') cfg.chips=WRES.legpress.chips;
+      if(cfg.base!=null&&!cfg.baseLabel) cfg.baseLabel='machine';
+    }
+    return cfg;
   }
   function key(id) { return 'exercise:' + JSON.stringify([id.name, id.equipment, id.label.toLowerCase()]); }
   function label(id) { return id.name + ' · ' + (WRES[id.equipment] || WRES.machine).label + (id.label ? ' · ' + id.label : ''); }
@@ -20,7 +37,7 @@
   }
   function select(planned, rec, id) {
     const current = identity(planned, rec);
-    if (key(current) === key(id)) return rec;
+    if (key(current) === key(id)) return {...rec, exercise:{...rec.exercise,...id}, resType:id.equipment};
     const {variants = [], ...active} = rec;
     const saved = variants.map(v => ({...v}));
     const index = saved.findIndex(v => key(identity(planned, v)) === key(id));
@@ -37,5 +54,5 @@
     }
     return result;
   }
-  window.ExerciseHistory = {identity, key, label, entries, select, baselineMap};
+  window.ExerciseHistory = {identity, key, label, entries, select, baselineMap, equipmentConfig};
 })();

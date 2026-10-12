@@ -164,31 +164,48 @@ async function showSubstitution(idx, planned){
   const form=el('form','swapform');
   const nameLabel=el('label',null,'Exercise'); const name=el('input'); name.required=true; name.maxLength=100; name.value=id.name; nameLabel.appendChild(name);
   const choices=el('div','subs');
-  [...new Set([planned.ex,planned.sub1,planned.sub2].filter(Boolean))].forEach(n=>{ const b=el('button','subchip',esc(n)); b.type='button'; b.onclick=()=>{name.value=n; equipment.value=resTypeFor(n); label.value='';}; choices.appendChild(b); });
+  [...new Set([planned.ex,planned.sub1,planned.sub2].filter(Boolean))].forEach(n=>{ const b=el('button','subchip',esc(n)); b.type='button'; b.onclick=()=>{name.value=n; equipment.value=resTypeFor(n); label.value='';fillLoading({equipment:equipment.value});}; choices.appendChild(b); });
   const eqLabel=el('label',null,'Equipment'); const equipment=el('select');
   RES_ORDER.forEach(k=>{ const o=el('option',null,WRES[k].label); o.value=k; equipment.appendChild(o); }); equipment.value=id.equipment; eqLabel.appendChild(equipment);
   const setupLabel=el('label',null,'Machine / setup name (optional)'); const label=el('input'); label.maxLength=80; label.placeholder='e.g. upstairs cable machine'; label.value=id.label; setupLabel.appendChild(label);
+  const loading=el('div','loading-settings');
+  const baseLabel=el('label',null,'Starting sled / machine / bar weight (lb)'); const baseWeight=el('input');
+  baseWeight.type='number'; baseWeight.inputMode='decimal'; baseWeight.min='0'; baseWeight.max='10000'; baseWeight.step='any'; baseWeight.required=true; baseLabel.appendChild(baseWeight);
+  const modeLabel=el('label',null,'How do you add weight?'); const perSide=el('select');
+  [['total','Total added weight / weight stack'],['pair','Plates on each side']].forEach(([value,text])=>{const o=el('option',null,text);o.value=value;perSide.appendChild(o);}); modeLabel.appendChild(perSide);
+  const loadingHint=el('p','loading-hint');
+  function loadingPreview(){const base=Number(baseWeight.value); loadingHint.textContent=Number.isFinite(base)&&base>=0?
+    (perSide.value==='pair'?`Example: ${base} lb starting weight + 45 lb on each side = ${Math.round((base+90)*100)/100} lb total.`:`Example: ${base} lb starting weight + 45 lb added = ${Math.round((base+45)*100)/100} lb total.`)+' Saved set totals will not be changed.':'';}
+  function fillLoading(item){const supported=['machine','plates','legpress'].includes(item.equipment),cfg=EH.equipmentConfig(item);
+    loading.hidden=!supported; baseWeight.disabled=!supported; perSide.disabled=!supported;
+    baseWeight.value=String(cfg.base??0); perSide.value=cfg.pair?'pair':'total'; loadingPreview();}
+  equipment.onchange=()=>fillLoading({equipment:equipment.value}); baseWeight.oninput=loadingPreview; perSide.onchange=loadingPreview;
+  loading.append(baseLabel,modeLabel,loadingHint); fillLoading(id);
   const groupLabel=el('label',null,'Muscle group'); const group=el('select');
   [...GROUP_ORDER,'Other'].forEach(g=>{ const o=el('option',null,g); o.value=g; group.appendChild(o); }); group.value=id.group; groupLabel.appendChild(group);
   const known=new Map();
-  for(const e of await historyEntries()) if(e.id.name===id.name||e.ex.plannedName===planned.ex) known.set(EH.key(e.id),e.id);
-  for(const key of Object.keys((await loadBaseline()).lastSets||{})){
+  for(const e of await historyEntries()) if(e.id.name===id.name||e.ex.plannedName===planned.ex){
+    const key=EH.key(e.id); if(!known.has(key)||e.id.baseWeight!=null||known.get(key).baseWeight==null) known.set(key,e.id);
+  }
+  const carried=await loadBaseline();
+  for(const key of Object.keys({...carried.lastSets,...carried.setups})){
     try{ const [name,equipment,label]=JSON.parse(key.slice(9));
-      if(name===id.name||[planned.ex,planned.sub1,planned.sub2].includes(name)) known.set(key,{name,equipment,label,group:EX_GROUP[name]||id.group});
+      if(name===id.name||[planned.ex,planned.sub1,planned.sub2].includes(name)) {if(!known.has(key)||(known.get(key).baseWeight==null && carried.setups?.[key]?.baseWeight!=null)) known.set(key,{name,equipment,label,group:EX_GROUP[name]||id.group,...(carried.setups||{})[key]});}
     }catch(_){}
   }
   if(known.size){ const savedLabel=el('label',null,'Previously used setups'); const saved=el('select');
     const blank=el('option',null,'Choose a saved setup'); blank.value=''; saved.appendChild(blank);
     for(const [key,item] of known){ const option=el('option',null,esc(EH.label(item))); option.value=key; saved.appendChild(option); }
-    saved.onchange=()=>{ const item=known.get(saved.value); if(item){name.value=item.name; equipment.value=item.equipment; label.value=item.label; group.value=item.group;} };
+    saved.onchange=()=>{ const item=known.get(saved.value); if(item){name.value=item.name; equipment.value=item.equipment; label.value=item.label; group.value=item.group; fillLoading(item);} };
     savedLabel.appendChild(saved); form.appendChild(savedLabel);
   }
   const save=el('button','databtn','Use for this workout'); save.type='submit';
   const cancel=el('button','databtn','Cancel'); cancel.type='button'; cancel.onclick=()=>scrim.classList.remove('show');
-  form.append(nameLabel,choices,eqLabel,setupLabel,groupLabel,save,cancel); sheet.appendChild(form);
+  form.append(nameLabel,choices,eqLabel,setupLabel,loading,groupLabel,save,cancel); sheet.appendChild(form);
   form.onsubmit=async event=>{ event.preventDefault(); if(!name.value.trim()) return;
     if(state.wk!==wk||state.day!==day) return;
     const next={name:name.value.trim().replace(/\s+/g,' '),equipment:equipment.value,label:label.value.trim().replace(/\s+/g,' '),group:EX_GROUP[name.value.trim()]||group.value};
+    if(!baseWeight.disabled){const base=Number(baseWeight.value); if(baseWeight.value.trim()===''||!Number.isFinite(base)||base<0||base>10000){baseWeight.reportValidity(); return;} next.baseWeight=base;next.perSide=perSide.value==='pair';}
     dayCache[keyFor(wk,day)][idx]=EH.select(planned,liveRec(idx),next);
     queueSave(wk,day); scrim.classList.remove('show'); await computePRBase(); await renderList();
   };
@@ -228,7 +245,7 @@ function fireToast(name, val, key=name){
 
 // ---- WeightStepper (tap −/+ · equipment chips · tap-to-type) ----
 function makeWeightStepper(idx, ex, s, resType, prefill, onType){
-  const cfg=WRES[resType]||WRES.machine; let sub=false;
+  const cfg=EH.equipmentConfig(EH.identity(ex,liveRec(idx))); let sub=false;
   const wrap=el('div','wstep');
   const get=()=>{ const sv=(liveRec(idx).sets||[])[s]||{}; return (sv.w!==undefined&&sv.w!==''&&sv.w!=null); };
   const cur=()=>{ const sv=(liveRec(idx).sets||[])[s]||{}; return get()? Number(sv.w) : (prefill!=null?Number(prefill):(cfg.base!=null?cfg.base:0)); };
@@ -238,14 +255,15 @@ function makeWeightStepper(idx, ex, s, resType, prefill, onType){
   function draw(){
     const touched=get(), v=cur();
     plate.classList.toggle('touched',touched);
-    const ps=cfg.base!=null? Math.max(0,(v-cfg.base)/2):null;
+    const added=cfg.base!=null?Math.max(0,v-cfg.base):null;
+    const ps=added!=null&&cfg.pair?added/2:null;
     plate.innerHTML=`<div class="wrow">${resType==='bodyweight'?'<span class="wbw">BW +</span>':''}`
       +`<span class="wnum">${touched?esc(String(v)):(prefill!=null?esc(String(prefill)):'–')}</span>`
       +`<span class="wunit">lb</span></div>`
-      +(ps!=null&&v>0?`<div class="wside">${cfg.baseLabel||'bar'} ${cfg.base} + ${ps%1===0?ps:ps.toFixed(2)}/side</div>`:'')
+      +(cfg.base!=null?`<div class="wside">${v<cfg.base?'Saved total is below starting weight':`${cfg.baseLabel||'machine'} ${cfg.base} + ${cfg.pair?`${ps%1===0?ps:ps.toFixed(2)}/side`:`${Math.round(added*100)/100} added`}`}</div>`:'')
       +(ps>0&&v>cfg.base?loadoutSVG(cfg.base, ps):'');
   }
-  function commit(n){ if(n<0)n=0; setField(idx,ex,s,'w',String(Math.round(n*100)/100)); draw(); }
+  function commit(n){ n=Math.max(cfg.base??0,n); setField(idx,ex,s,'w',String(Math.round(n*100)/100)); draw(); }
   plate.addEventListener('click',()=>{
     if(plate.querySelector('input')) return;
     plate.innerHTML=`<input inputmode="decimal" value="${get()?esc(String(cur())):''}">`;
@@ -666,7 +684,7 @@ async function renderList(){
         if(cb) cb.addEventListener('click',async()=>{ const r=liveRec(idx); if(r.sets&&r.sets[s]) r.sets[s]={};
           recomputeMovementDone(); queueSave(state.wk,state.day); await computePRBase(); renderSets(); refreshCounts(); refreshDone(); });
         const fields=el('div','workfields');
-        const wf=el('div',null,'<div class="fieldlbl">Weight</div>');
+        const wf=el('div',null,'<div class="fieldlbl">'+(EH.equipmentConfig(EH.identity(planned,liveRec(idx))).base!=null?'Total weight':'Weight')+'</div>');
         wf.appendChild(makeWeightStepper(idx, ex, s, resType, wPre, s===0?()=>{
           showSubstitution(idx,planned);
         }:null));
@@ -856,10 +874,10 @@ async function exportJSON(){
   if(!download('bts-backup-'+stamp+'.json', txt, 'application/json')) showText('Backup data', txt);
 }
 async function exportCSV(){
-  const rows=[['Week','Day','Exercise','Equipment','Setup','Set','Weight','Reps']];
+  const rows=[['Week','Day','Exercise','Equipment','Setup','Set','Weight','Reps','Starting weight','Loading mode']];
   for(const w of DATA.weeks){ for(const dk of PDAYS){ const log=await loadDay(w.n,dk);
     sessionEntries(w.days[dk],log).forEach(({ex,rec,id})=>{ if(rec.sets) rec.sets.forEach((s,si)=>{
-      if(s&&((s.w&&s.w!=='')||(s.r&&s.r!==''))) rows.push([w.n, dk.toUpperCase(), ex.ex, id.equipment, id.label, si+1, s.w||'', s.r||'']); }); }); } }
+      if(s&&((s.w&&s.w!=='')||(s.r&&s.r!==''))) rows.push([w.n, dk.toUpperCase(), ex.ex, id.equipment, id.label, si+1, s.w||'', s.r||'', EH.equipmentConfig(id).base??'', EH.equipmentConfig(id).pair?'per side':'total']); }); }); } }
   const csv=rows.map(r=>r.map(c=>{ c=String(c); return /[",\n]/.test(c)?'"'+c.replace(/"/g,'""')+'"':c; }).join(',')).join('\n');
   const stamp=new Date().toISOString().slice(0,10);
   if(!download('bts-log-'+stamp+'.csv', csv, 'text/csv')) showText('Training log (CSV)', csv);
@@ -1910,9 +1928,10 @@ async function saveBaseline(b){ await window.storage.set('bts:base:summary', JSO
 // Summarise a set of logs (best est-1RM per movement, lifetime volume, total PRs) via a program.
 function summariseLogs(logs, program){
   const dayRank={mon:0,wed:1,fri:2,sat:3};
-  let volume=0; const weekBest={}, lastSets={}, lastRank={};
+  let volume=0; const weekBest={}, lastSets={}, lastRank={}, setups={};
   for(const k in logs){ const m=k.match(/^bts:log:w(\d+):(\w+)$/); if(!m) continue; const wk=+m[1], day=m[2], log=logs[k]||{};
     for(const {ex,rec} of sessionEntries((program.weeks[wk-1]?.days[day])||[],log)){ if(!rec.sets) continue; const name=ex.historyKey;
+      if(rec.exercise && (rec.exercise.baseWeight!=null||rec.exercise.perSide!=null)) setups[name]=rec.exercise;
       let best=0, any=false; rec.sets.forEach(st=>{ const w=parseFloat(st.w), r=parseFloat(st.r); if(w>0&&r>0){ volume+=w*r; any=true; const e=w*(1+r/30); if(e>best) best=e; } });
       if(name&&best>0){ const kk=wk+'|'+name; if(best>(weekBest[kk]||0)) weekBest[kk]=best; }
       if(name&&any){ const rank=wk*10+(dayRank[day]||0);   // remember the most recent sets for each lift
@@ -1923,7 +1942,7 @@ function summariseLogs(logs, program){
   Object.keys(weekBest).map(kk=>{ const i=kk.indexOf('|'); return {wk:+kk.slice(0,i), name:kk.slice(i+1), e:weekBest[kk]}; })
     .sort((a,b)=>a.wk-b.wk)
     .forEach(({name,e})=>{ if(run[name]===undefined) run[name]=e; else if(e>run[name]+0.001){ run[name]=e; prs++; } exBest[name]=Math.max(exBest[name]||0,e); });
-  return {exBest, volume:Math.round(volume), prs, lastSets};
+  return {exBest, volume:Math.round(volume), prs, lastSets, setups};
 }
 // Archive current logs, fold their stats into the carried baseline, clear, reset to Week 1.
 async function startNewProgram(useLegacy){
@@ -1935,6 +1954,7 @@ async function startNewProgram(useLegacy){
   const base={...oldBase,exBest:EH.baselineMap(oldBase.exBest),lastSets:EH.baselineMap(oldBase.lastSets)};
   for(const n in sum.exBest){ if(sum.exBest[n]>(base.exBest[n]||0)) base.exBest[n]=sum.exBest[n]; }
   base.lastSets=base.lastSets||{}; for(const n in sum.lastSets) base.lastSets[n]=sum.lastSets[n];  // newest reference per lift
+  base.setups={...(base.setups||{}),...sum.setups};
   base.volume=(base.volume||0)+sum.volume; base.prs=(base.prs||0)+sum.prs; base.cycles=(base.cycles||0)+1;
   try{ base.archivedAt=new Date().toISOString(); }catch(_){}
   // keep a raw safety copy of everything we're about to clear

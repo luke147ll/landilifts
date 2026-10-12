@@ -4,7 +4,7 @@ const fs=require('node:fs');
 const vm=require('node:vm');
 function app(){
   const noop=()=>{};
-  const element=()=>({style:{},classList:{add:noop,remove:noop,toggle:noop,contains:()=>false},addEventListener:noop,querySelector:()=>element(),querySelectorAll:()=>[],append:noop,appendChild:noop,setAttribute:noop,remove:noop});
+  const element=()=>({children:[],style:{},classList:{add:noop,remove:noop,toggle:noop,contains:()=>false},addEventListener:noop,querySelector:()=>element(),querySelectorAll:()=>[],append(...nodes){this.children.push(...nodes);},appendChild(node){this.children.push(node);},setAttribute:noop,remove:noop,focus:noop});
   const store=new Map();
   const localStorage={getItem:k=>store.get(k)??null,setItem:(k,v)=>store.set(k,String(v)),removeItem:k=>store.delete(k),key:i=>[...store.keys()][i],get length(){return store.size}};
   const c=vm.createContext({console,localStorage,document:{getElementById:()=>element(),querySelector:()=>element(),querySelectorAll:()=>[],createElement:element,addEventListener:noop},navigator:{},setTimeout:()=>1,clearTimeout:noop,setInterval:()=>1,clearInterval:noop,alert:noop,confirm:()=>true,fetch:async()=>({ok:true}),URL,Blob});
@@ -118,4 +118,40 @@ test('unreadable stored logs abort rollover before deletion',async()=>{
  await assert.rejects(run('startNewProgram(false)'));
  assert.equal(store.get('bts:log:w1:mon'),'{invalid');
  assert.equal(store.has('bts:base:summary'),false);
+});
+test('116 lb hack squat sled plus one 45 per side logs 206 total through the weight control',async()=>{
+ const {run}=app();run(setup);
+ assert.equal(run(`(()=>{liveRec(0).exercise={...original,baseWeight:116,perSide:true};const control=makeWeightStepper(0,planned,0,'machine',null,null);control.children[2].children.find(b=>b.innerHTML==='+45').onclick();return liveRec(0).sets[0].w;})()`),'206');
+ await run('flushDayWrites()');
+});
+test('single stack mode adds once; plate subtraction cannot go below empty sled',async()=>{
+ const {run}=app();run(setup);
+ assert.equal(run(`(()=>{liveRec(0).exercise={...original,baseWeight:20,perSide:false};const control=makeWeightStepper(0,planned,0,'machine',null,null);control.children[2].children.find(b=>b.innerHTML==='+25').onclick();return liveRec(0).sets[0].w;})()`),'45');
+ assert.equal(run(`(()=>{liveRec(0).exercise={...original,baseWeight:116,perSide:true};liveRec(0).sets=[];const control=makeWeightStepper(0,planned,0,'machine',null,null);control.children[0].children[0].onclick();return liveRec(0).sets[0].w;})()`),'116');
+ await run('flushDayWrites()');
+});
+test('editing sled weight retains totals, PR identity, completion, and variants',()=>{
+ const {run}=app();run(setup);
+ assert.equal(run(`(()=>{const rec={exercise:{...original,baseWeight:116,perSide:true},done:true,sets:[{w:'206',r:'8'}],variants:[{exercise:leg,sets:[{w:'300',r:'8'}]}]};const next=EH.select(planned,rec,{...original,baseWeight:120,perSide:true});return next.sets[0].w==='206'&&next.done&&next.variants.length===1&&EH.identity(planned,next).baseWeight===120&&EH.key(EH.identity(planned,next))===EH.key(original);})()`),true);
+});
+test('sled setup persists through save, reload, swaps and cycle archive',async()=>{
+ const {run,store}=app();run(setup);
+ await run(`(async()=>{liveRec(0).exercise={...original,label:'Hack sled',baseWeight:116,perSide:true};liveRec(0).sets=[{w:'206',r:'8'}];queueSave(1,'mon');await flushDayWrites();dayCache={};await loadDay(1,'mon');})()`);
+ assert.equal(run('EH.identity(planned,liveRec(0)).baseWeight'),116);
+ assert.equal(run(`(()=>{const id=EH.identity(planned,liveRec(0));let r=EH.select(planned,liveRec(0),leg);r=EH.select(planned,r,id);return r.exercise.baseWeight===116&&r.sets[0].w==='206';})()`),true);
+ run('renderAll=async()=>{}');await run('startNewProgram(false)');
+ const base=JSON.parse(store.get('bts:base:summary'));assert.equal(Object.values(base.setups)[0].baseWeight,116);
+});
+test('legacy sled defaults, explicit zero, decimals and invalid imported bases',()=>{
+ const {run}=app();run(setup);
+ assert.equal(run('EH.equipmentConfig(leg).base'),118);
+ assert.equal(run('EH.equipmentConfig({...leg,baseWeight:0}).base'),0);
+ assert.equal(run('EH.equipmentConfig({...leg,baseWeight:115.5}).base'),115.5);
+ for(const bad of ['-1','Infinity','NaN','10001']) assert.equal(run('EH.equipmentConfig({...leg,baseWeight:'+bad+'}).base'),118);
+ assert.equal(run("EH.equipmentConfig({...db,baseWeight:116}).base"),undefined);
+});
+test('saved loading settings remain selectable in a later untouched workout',async()=>{
+ const {run}=app();run(setup);
+ await run(`(async()=>{dayCache[keyFor(1,'mon')]={0:{exercise:{...original,baseWeight:116,perSide:true},sets:[]}};state={wk:2,day:'mon'};await showSubstitution(0,planned);})()`);
+ assert.equal(run(`(()=>{const form=sheet.children[sheet.children.length-1];const saved=form.children[0].children[0];saved.value=EH.key(original);saved.onchange();const loading=form.children.find(n=>n.className==='loading-settings');return loading.children[0].children[0].value==='116'&&loading.children[1].children[0].value==='pair';})()`),true);
 });
