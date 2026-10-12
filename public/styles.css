@@ -64,6 +64,16 @@ button,select,input,.wplate,.splate{touch-action:manipulation}
 .rep-custom[hidden],.rep-select[hidden]{display:none}
 .rep-custom input{width:100%;min-width:0;min-height:48px;padding:10px;border:1px solid var(--s1);border-radius:10px;background:var(--crust);color:var(--text);font:16px var(--body)}
 .rep-custom button{min-height:44px;padding:8px 12px;background:var(--s0);border-radius:8px;font-size:13px}
+.add-exercise{display:block;width:100%;min-height:48px;padding:12px;margin:0 0 16px;border:1px solid var(--s1);border-radius:12px;color:var(--mauve);font-size:12px;text-align:left}
+.recurring-form label{display:block;color:var(--sub1);font-size:12px;margin:14px 0 6px}
+.recurring-form input:not([type=checkbox]),.recurring-form select{display:block;width:100%;min-width:0;min-height:46px;margin-top:7px;padding:10px;border:1px solid var(--s1);border-radius:9px;background:var(--crust);color:var(--text);font:16px var(--body)}
+.recurring-fields{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.recurring-form fieldset{display:flex;flex-wrap:wrap;gap:8px;border:1px solid var(--s1);border-radius:10px;margin:16px 0;padding:8px 12px}
+.recurring-form legend{font-size:12px;color:var(--sub1)}
+.recurring-form fieldset label{display:flex;align-items:center;min-height:44px;gap:6px;margin:0;padding-right:8px}
+.recurring-form input[type=checkbox]{width:20px;height:20px;accent-color:var(--mauve)}
+.recurring-form .recurring-error{color:var(--red)}
+.recurring-form .databtn{margin-top:10px}
 .wrap{max-width:760px;margin:0 auto;padding:0 14px 120px}
 
 /* ---------- Header ---------- */

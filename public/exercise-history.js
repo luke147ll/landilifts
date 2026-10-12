@@ -3,7 +3,7 @@
 (function () {
   const clean = value => String(value || '').trim().replace(/\s+/g, ' ');
   function identity(planned, rec = {}) {
-    const saved = rec.exercise || {};
+    const saved = rec.exercise || planned.customIdentity || {};
     const name = clean(saved.name) || planned.ex;
     return {...settings(saved), name, equipment: saved.equipment || rec.resType || resTypeFor(name),
       label: clean(saved.label), group: saved.group || window.EX_GROUP[name] || window.EX_GROUP[planned.ex] || 'Other'};
@@ -44,7 +44,7 @@
     const next = index < 0 ? {done: false, sets: [], exercise: id} : saved.splice(index, 1)[0];
     // Keep even incomplete or completion-only records; never move their weights to a new identity.
     saved.push({...active, exercise: current});
-    return {...next, exercise: id, resType: id.equipment, variants: saved};
+    return {...next, ...(rec.planned?{planned:rec.planned}:{}), exercise: id, resType: id.equipment, variants: saved};
   }
   function baselineMap(map = {}) {
     const result = {};

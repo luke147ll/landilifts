@@ -13,6 +13,61 @@ function app(){
   return {run:code=>vm.runInContext(code.includes("await") && !code.startsWith("(async") ? "(async()=> ("+code+"))()" : code,c),store,c};
 }
 const setup=`const planned=DATA.weeks[0].days.mon[0]; const original=EH.identity(planned); const leg=EH.identity({ex:'Leg Press'}); const db=EH.identity({ex:'DB Walking Lunge'});`;
+const customSetup=`const added={from:10,active:true,days:['mon','wed','fri'],exercise:{name:'DB Lateral Raise',equipment:'dumbbell',label:'',group:'Shoulders'},sets:3,reps:'10-15'}; const customPlan={version:1,rules:[{id:'side-delts',versions:[added]}]};`;
+test('recurring additions start at the chosen session, skip duplicate lifts and leave the shipped plan intact',()=>{
+ const {run}=app();run(customSetup);
+ assert.equal(run(`(()=>{const base=pickProgram(null),before=JSON.stringify(base);const p=customizedProgram(base,{version:1,rules:[{id:'side-delts',versions:[{...added,from:programRank(0,3,'wed'),days:['mon','wed']}]}]},0);return p.weeks[2].days.mon.length===base.weeks[2].days.mon.length&&p.weeks[2].days.wed.at(-1).logKey==='extra:side-delts'&&p.weeks[2].days.fri.length===base.weeks[2].days.fri.length&&p.weeks[3].days.mon.at(-1).ex==='DB Lateral Raise'&&JSON.stringify(base)===before;})()`),true);
+ assert.equal(run(`(()=>{const base=pickProgram(null),ex=base.weeks[0].days.mon[0];const p=customizedProgram(base,{version:1,rules:[{id:'duplicate',versions:[{...added,exercise:EH.identity(ex)}]}]},0);return p.weeks[0].days.mon.length===base.weeks[0].days.mon.length;})()`),true);
+});
+test('recurring sets use stable keys, share history across days and survive removal and swaps',async()=>{
+ const {run,store}=app();run(customSetup);
+ await run(`window.storage.set(CUSTOM_PROGRAM_KEY,JSON.stringify(customPlan),false)`);await run('refreshCustomProgram()');
+ run(`const index=curWeek().days.mon.findIndex(ex=>ex.logKey==='extra:side-delts');const extra=curWeek().days.mon[index];setField(index,extra,0,'w','20');setField(index,extra,0,'r','12');`);
+ await run('flushDayWrites()');
+ assert.equal(JSON.parse(store.get('bts:log:w1:mon'))['extra:side-delts'].sets[0].w,'20');
+ assert.equal(await run(`(await previousSets(added.exercise,1,'wed'))[0].r`),'12');
+ run(`dayCache[keyFor(1,'mon')]['extra:side-delts']=EH.select(extra,liveRec(index),{...added.exercise,equipment:'machine'});setField(index,extra,0,'w','40');setField(index,extra,0,'r','10');queueSave(1,'mon');`);
+ await run('flushDayWrites()');
+ run(`customPlan.rules[0].versions.push({...added,from:10,active:false});`);
+ await run(`window.storage.set(CUSTOM_PROGRAM_KEY,JSON.stringify(customPlan),false)`);await run('refreshCustomProgram()');
+ assert.equal(run(`curWeek().days.mon.at(-1).logKey`),'extra:side-delts');
+ assert.equal(run(`curWeek().days.wed.some(ex=>ex.logKey)`),false);
+ assert.equal(await run(`(await historyEntries()).filter(e=>e.ex.plannedName==='DB Lateral Raise').length`),2);
+ run('dayCache={}');await run('refreshCustomProgram()');
+ assert.equal(await run(`(await historyEntries()).find(e=>e.id.equipment==='machine'&&e.id.name==='DB Lateral Raise').rec.sets[0].w`),'40');
+ assert.equal(run(`sessionEntries([],dayCache[keyFor(1,'mon')]).length`),2);
+});
+test('removing an earlier extra cannot move a later extra onto another log',()=>{
+ const {run}=app();run(customSetup);
+ assert.equal(run(`(()=>{const later={...added,exercise:{...added.exercise,name:'DB Curl'}};const plan={version:1,rules:[{id:'first',versions:[{...added,active:false}]},{id:'second',versions:[later]}]};const base=pickProgram(null);const logs={'bts:log:w1:mon':{'extra:second':{sets:[{w:'30',r:'8'}],planned:{ex:'DB Curl',sets:3,reps:'8-12',logKey:'extra:second'},exercise:later.exercise}}};const p=customizedProgram(base,plan,0,logs),ex=p.weeks[0].days.mon.at(-1);return ex.logKey==='extra:second'&&dayRecord(logs['bts:log:w1:mon'],ex,9).sets[0].w==='30';})()`),true);
+});
+test('edits preserve logged prescriptions and do not add exercises to completed workouts',()=>{
+ const {run}=app();run(customSetup);
+ assert.equal(run(`(()=>{const base=pickProgram(null),original={ex:'DB Lateral Raise',sets:4,reps:'8-12',logKey:'extra:side-delts',customIdentity:added.exercise};const logs={'bts:log:w1:mon':{'extra:side-delts':{planned:original,sets:[{w:'20',r:'8'}]}}};const p=customizedProgram(base,customPlan,0,logs,{'bts:fin:w1:wed':{at:'saved'}});return p.weeks[0].days.mon.at(-1).sets===4&&p.weeks[0].days.wed.length===base.weeks[0].days.wed.length&&p.weeks[0].days.fri.at(-1).sets===3;})()`),true);
+});
+test('recurring plan and records survive backup and cycle rollover',async()=>{
+ const {run,store}=app();run(customSetup);
+ await run(`window.storage.set(CUSTOM_PROGRAM_KEY,JSON.stringify(customPlan),false)`);await run('refreshCustomProgram()');
+ run(`const i=curWeek().days.mon.length-1;setField(i,curWeek().days.mon[i],0,'w','20');setField(i,curWeek().days.mon[i],0,'r','12');renderAll=async()=>{};`);
+ const backup=await run(`JSON.stringify(await gatherAll())`);assert.ok(JSON.parse(backup)['bts:custom:program:v1']);
+ await run('startNewProgram(false)');await run('refreshCustomProgram()');
+ assert.ok(store.has('bts:arch:c1:bts:custom:program:v1'));
+ assert.ok(store.has('bts:arch:c1:bts:log:w1:mon'));
+ assert.equal(run(`curWeek().days.mon.at(-1).logKey`),'extra:side-delts');
+ assert.equal(await run(`(await previousSets(added.exercise,1,'mon'))[0].w`),'20');
+});
+test('invalid or failed plan saves keep the existing plan, and profile clear removes customization',async()=>{
+ const {run,store}=app();run(customSetup);
+ await run(`window.storage.set(CUSTOM_PROGRAM_KEY,JSON.stringify(customPlan),false)`);
+ const before=store.get('bts:custom:program:v1');
+ await assert.rejects(run(`saveCustomRule('side-delts',{...added,days:[]})`));
+ assert.equal(store.get('bts:custom:program:v1'),before);
+ run(`window.storage.set=async()=>{throw Error('disk full');};`);
+ await assert.rejects(run(`saveCustomRule('side-delts',{...added,sets:4})`),/disk full/);
+ assert.equal(store.get('bts:custom:program:v1'),before);
+ await run('clearLocal()');await run('refreshCustomProgram()');
+ assert.equal(run(`curWeek().days.mon.some(ex=>ex.logKey)`),false);
+});
 test('rep picker leaves suggestions unlogged and saves an explicit choice only to its set',async()=>{
  const {run,store}=app();run(setup);
  run(`const repControl=makeRepsStepper(0,planned,0,'8');const repSelect=repControl.children[0];`);

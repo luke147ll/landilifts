@@ -211,3 +211,36 @@ Custom entry validates before Save and can be cancelled. Controls use
 `touch-action: manipulation` to suppress double-tap zoom while allowing pinch
 zoom; editable fields remain at least 16px. Desktop browser checks do not
 substitute for final touch testing on a physical iPhone.
+
+### Personal recurring exercises
+
+Use **Add / manage recurring exercises** above the workout list to choose a
+movement, equipment/setup name, sets, rep range, and Monday/Wednesday/Friday.
+The change starts at the selected program week/day, repeats on those days, and
+continues into later cycles. Open an existing rule to edit or stop it from the
+selected session onward. If the exact exercise/equipment/setup is already in
+the shipped schedule, its existing prescription stays and no duplicate is
+added. This feature adds recurring work; it does not rewrite the core program.
+
+Rules live in the per-profile `bts:custom:program:v1` key with effective-session
+revisions. Custom logs use stable `extra:<id>` slots, leaving original numeric
+slots untouched. They store their planned prescription and equipment identity,
+so recorded sessions and swapped-away variants remain readable after editing
+or stopping a rule, restoring a backup, or changing programs. A saved set or
+completion protects that session's prescription; additional recorded sets are
+never hidden by lowering a future set target. No defaults are automatically
+logged and custom extras do not inherit the program's last-set failure cue.
+
+The same exercise/equipment/setup shares PR and last-set history across days.
+New rule keys and self-describing logs travel through existing JSON/cloud sync;
+CSV and statistics include custom records. Cycle rollover archives the rule
+configuration alongside raw logs, carries bests/last sets, and keeps the rules
+active. Customization clears with the profile. There is no eager migration of
+old logs. Older app builds cannot display these additions and should not be
+used to edit the new backup format.
+
+All 33 automated tests pass, including six recurring-program regressions for
+effective days, duplicates, stable slots, swaps, preserved prescriptions,
+backup/cycle carryover, invalid or failed saves, and profile isolation. Local
+browser checks with synthetic records cover add, shared last-set history,
+edit, reload, stop, and preserved history in the record book at phone width.

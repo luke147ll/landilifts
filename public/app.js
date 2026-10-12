@@ -139,11 +139,31 @@ function loadoutSVG(base, perSide){
 }
 
 // live mutable record for the current day (mutations persist via queueSave)
-function liveRec(idx){ const k=keyFor(state.wk,state.day); const dc=dayCache[k]||(dayCache[k]={}); return dc[idx]||(dc[idx]={done:false,sets:[]}); }
+function logSlot(ex,idx){ return ex?.logKey||idx; }
+function dayRecord(log,ex,idx){ return log[logSlot(ex,idx)]; }
+function liveRec(idx){
+  const k=keyFor(state.wk,state.day), dc=dayCache[k]||(dayCache[k]={});
+  const planned=DATA.weeks[state.wk-1]?.days[state.day]?.[idx],slot=logSlot(planned,idx);
+  const rec=dc[slot]||(dc[slot]={done:false,sets:[]});
+  if(planned?.logKey&&!hasSessionData(rec)){
+    rec.planned={...planned};
+    if(!rec.exercise||(!rec.resType&&!rec.variants?.length))rec.exercise={...planned.customIdentity};
+  }
+  return rec;
+}
 
 // Resolve actual movements without modifying the scheduled program or legacy records.
 const EH=window.ExerciseHistory;
-function sessionEntries(exs, log){ return exs.flatMap((ex,i)=>EH.entries(ex,log[i]).map(entry=>({...entry, idx:i}))); }
+function sessionEntries(exs, log){
+  const seen=new Set(),out=[];
+  exs.forEach((ex,i)=>{const slot=logSlot(ex,i);seen.add(String(slot));EH.entries(ex,log[slot]).forEach(entry=>out.push({...entry,idx:slot}));});
+  // Custom records are self-describing, so removing a rule or restoring an
+  // older program never makes a saved extra disappear from history/exports.
+  for(const [slot,rec] of Object.entries(log)) if(slot.startsWith('extra:')&&!seen.has(slot)&&rec?.planned?.ex){
+    EH.entries(rec.planned,rec).forEach(entry=>out.push({...entry,idx:slot}));
+  }
+  return out;
+}
 async function historyEntries(){
   const out=[];
   for(const w of DATA.weeks) for(const day of PDAYS){
@@ -153,6 +173,7 @@ async function historyEntries(){
   return out;
 }
 function hasLoggedSets(rec){ return (rec.sets||[]).some(s=>s && (s.w!==undefined && s.w!=='' || s.r!==undefined && s.r!=='')); }
+function hasSessionData(rec){return !!rec&&(rec.done||hasLoggedSets(rec)||(rec.variants||[]).some(v=>v.done||hasLoggedSets(v)));}
 async function previousSets(id, wk, day){
   const key=EH.key(id), rank=wk*10+PDAYS.indexOf(day);
   const entries=(await historyEntries()).filter(e=>e.ex.historyKey===key && e.wk*10+PDAYS.indexOf(e.day)<rank && hasLoggedSets(e.rec));
@@ -206,7 +227,7 @@ async function showSubstitution(idx, planned){
     if(state.wk!==wk||state.day!==day) return;
     const next={name:name.value.trim().replace(/\s+/g,' '),equipment:equipment.value,label:label.value.trim().replace(/\s+/g,' '),group:EX_GROUP[name.value.trim()]||group.value};
     if(!baseWeight.disabled){const base=Number(baseWeight.value); if(baseWeight.value.trim()===''||!Number.isFinite(base)||base<0||base>10000){baseWeight.reportValidity(); return;} next.baseWeight=base;next.perSide=perSide.value==='pair';}
-    dayCache[keyFor(wk,day)][idx]=EH.select(planned,liveRec(idx),next);
+    dayCache[keyFor(wk,day)][logSlot(planned,idx)]=EH.select(planned,liveRec(idx),next);
     queueSave(wk,day); scrim.classList.remove('show'); await computePRBase(); await renderList();
   };
   scrim.classList.add('show'); name.focus();
@@ -403,7 +424,7 @@ async function loadFin(wk,day){ const k='bts:fin:w'+wk+':'+day; if(k in finCache
 async function daySummary(wk,day){
   const exs=(DATA.weeks[wk-1]&&DATA.weeks[wk-1].days[day])||[]; const log=await loadDay(wk,day);
   let done=0, sets=0, vol=0, bestE=0, bestEx='';
-  done=exs.filter((_,i)=>log[i]&&log[i].done).length;
+  done=exs.filter((ex,i)=>dayRecord(log,ex,i)?.done).length;
   sessionEntries(exs,log).forEach(({ex,rec})=>{
     (rec.sets||[]).forEach(st=>{ const w=parseFloat(st.w), r=parseFloat(st.r); if(w>0&&r>0){
       sets++; vol+=w*r; const e=Math.round(w*(1+r/30)); if(e>bestE){ bestE=e; bestEx=ex.historyLabel; } } }); });
@@ -427,6 +448,7 @@ function showWorkoutSummary(wk,day,fin){
 // On finishing a workout, capture every set the lifter put a value into —
 // Completion saves only what was actually entered; sparse PR-only logs stay sparse.
 async function finishWorkout(){
+  if((curWeek().days[state.day]||[]).some(ex=>ex.logKey)) queueSave(state.wk,state.day);
   await flushDayWrites();
   const k='bts:fin:w'+state.wk+':'+state.day; const fin={at:new Date().toISOString()};
   try{ await window.storage.set(k, JSON.stringify(fin), false); }catch(_){}
@@ -508,7 +530,7 @@ async function renderTabs(){
     const exs=curWeek().days[d.k]||[];
     const log=await loadDay(state.wk,d.k);
     const fin=await loadFin(state.wk,d.k);
-    let done=0; exs.forEach((_,i)=>{ if(log[i]&&log[i].done) done++; });
+    let done=0; exs.forEach((ex,i)=>{ if(dayRecord(log,ex,i)?.done) done++; });
     el.innerHTML=`${fin?'<div class="tfin">✓</div>':''}<div class="ring">${done}/${exs.length}</div><div class="dow">${d.dow}</div><div class="typ">${d.tab}</div>`;
     el.onclick=()=>{ state.day=d.k; renderAll(); };
     tabs.appendChild(el);
@@ -587,10 +609,10 @@ async function renderList(){
   const log=await loadDay(state.wk,state.day);
   const prevByName={};
   for(let i=0;i<exs.length;i++){
-    const id=EH.identity(exs[i],log[i]); prevByName[EH.key(id)]=await previousSets(id,state.wk,state.day);
+    const id=EH.identity(exs[i],dayRecord(log,exs[i],i)); prevByName[EH.key(id)]=await previousSets(id,state.wk,state.day);
   }
 
-  let done=0; exs.forEach((_,i)=>{ if(log[i]&&log[i].done) done++; });
+  let done=0; exs.forEach((ex,i)=>{ if(dayRecord(log,ex,i)?.done) done++; });
   document.getElementById('daybar').innerHTML =
     `<span class="dot" style="background:${d.color}"></span>`+
     `<span class="ttl">${d.dow} — ${d.typ.replace(' · ',' · ')}</span>`+
@@ -598,11 +620,13 @@ async function renderList(){
 
   const list=document.getElementById('list'); list.innerHTML='';
   const cards=[], cardSets=[];
+  const extras=el('button','add-exercise','+ Add / manage recurring exercises');
+  extras.onclick=()=>showCustomProgram();list.appendChild(extras);
   // accordion: open the first not-yet-done lift (all done -> all collapsed)
-  let openIdx=exs.findIndex((_,i)=>!(log[i]&&log[i].done));
+  let openIdx=exs.findIndex((ex,i)=>!dayRecord(log,ex,i)?.done);
   function updateStatuses(){
     const dc=dayCache[keyFor(state.wk,state.day)]||{};
-    cards.forEach((c,i)=>{ const r=dc[i]||{}; c.classList.toggle('complete', !!r.done);
+    cards.forEach((c,i)=>{ const r=dayRecord(dc,exs[i],i)||{}; c.classList.toggle('complete', !!r.done);
       const hint=c.querySelector('.history-hint'); if(hint){const id=EH.identity(exs[i],r), best=PR_BASE[EH.key(id)];
         hint.textContent=(best?'Best est. 1RM: '+Math.round(best)+' lb':'No PR logged for this setup yet')+' · Log just your PR, or any sets you want to keep.';}
       const cs=c.querySelector('.csum'); if(cs) cs.innerHTML=summaryText(exs[i], r); });
@@ -611,19 +635,22 @@ async function renderList(){
     if(openIdx>=0 && cardSets[openIdx]) cardSets[openIdx](); }  // rebuild steppers while visible (iOS lays out nested flex correctly)
   afterEdit=updateStatuses;
   exs.forEach((planned,idx)=>{
-    const rec=log[idx]||{done:false,sets:[]};
-    const id=EH.identity(planned,rec);
+    const rec=dayRecord(log,planned,idx)||{done:false,sets:[]};
+    const id=EH.identity(planned,rec.exercise?rec:planned.customIdentity?{...rec,exercise:planned.customIdentity}:rec);
     const ex={...planned,ex:id.name,demo:id.name===planned.ex?planned.demo:null};
-    const nSets=ex.sets||2;
+    const nSets=Math.max(ex.sets||2,rec.sets?.length||0);
     const tl=techLabel(ex.tech); const tc=techClass(ex.tech);
     const card=document.createElement('div'); card.className='card';
 
     let tags=`<span class="tag"><b>${nSets}</b> × ${esc(ex.reps)} reps</span>`;
+    if(planned.logKey) tags+='<span class="tag">Recurring extra</span>';
+    else {
     if(ex.erpe) tags+=`<span class="tag">early RPE ${esc(ex.erpe)}</span>`;
     tags+=`<span class="tag">last RPE <b>${esc(ex.lrpe)}</b></span>`;
     tags+=`<span class="tag">rest ${esc(ex.rest)}</span>`;
     tags+=`<span class="tag">warm-up ${esc(ex.wu)}</span>`;
     if(tl) tags+=`<span class="tag ${tc}">${esc(tl)}</span>`;
+    }
 
     const nameHTML = `<span class="exname">${esc(ex.ex)}</span>`
       + (ex.demo ? `<a class="play" href="${ex.demo}" target="_blank" rel="noopener" aria-label="Watch demo video">▶ demo</a>` : '');
@@ -666,7 +693,7 @@ async function renderList(){
     const lastWk=(s)=>prevSets[s]||{};
     // weight default carries forward from the nearest earlier set you logged this session, else last week's
     function carryWeight(s){ const sets=liveRec(idx).sets||[]; for(let p=s-1;p>=0;p--){ const w=sets[p]&&sets[p].w; if(w!==undefined&&w!=='') return String(w); } const pv=lastWk(s); return (pv.w!=null&&pv.w!=='')?String(pv.w):null; }
-    function repsPre(s){ const pv=lastWk(s); return (pv.r!=null&&pv.r!=='')?String(pv.r):'8'; }
+    function repsPre(s){ const pv=lastWk(s); return (pv.r!=null&&pv.r!=='')?String(pv.r):planned.logKey?String(parseInt(planned.reps,10)||8):'8'; }
     function recomputeMovementDone(){ const r=liveRec(idx); let all=nSets>0; for(let s=0;s<nSets;s++){ if(!(r.sets&&r.sets[s]&&r.sets[s].done)){ all=false; break; } } r.done=all; }
     function markSetDone(s){ const r=liveRec(idx); r.sets=r.sets||[]; while(r.sets.length<=s) r.sets.push({}); const sv=r.sets[s];
       if(sv.w===undefined||sv.w===''){ const w=carryWeight(s); if(w!=null) sv.w=w; }   // commit the shown default if untouched
@@ -696,7 +723,7 @@ async function renderList(){
         const hint=(pv&&(pv.w||pv.r))?`<span class="lasthint">${refLbl} <b>${esc(pv.w||'–')}</b> × ${esc(pv.r||'–')}</span>`:'';
         const clearBtn=hasVal?`<button class="setclear" aria-label="Clear this set" title="Clear this set">✕</button>`:'';
         const right=(hint||clearBtn)?`<span class="wtright">${hint}${clearBtn}</span>`:'';
-        const ws=el('div','workset',`<div class="worktop"><span class="sn${last?' last':''}">Set ${s+1}</span>${last?'<span class="failpill">FAILURE</span>':''}${right}</div>`);
+        const ws=el('div','workset',`<div class="worktop"><span class="sn${last?' last':''}">Set ${s+1}</span>${last&&!planned.logKey?'<span class="failpill">FAILURE</span>':''}${right}</div>`);
         const cb=ws.querySelector('.setclear');
         if(cb) cb.addEventListener('click',async()=>{ const r=liveRec(idx); if(r.sets&&r.sets[s]) r.sets[s]={};
           recomputeMovementDone(); queueSave(state.wk,state.day); await computePRBase(); renderSets(); refreshCounts(); refreshDone(); });
@@ -737,6 +764,7 @@ async function renderList(){
   });
   updateStatuses();
 
+
   // finish-workout bar
   const fin=await loadFin(state.wk, state.day);
   const bar=el('div','finbar');
@@ -767,13 +795,14 @@ async function renderList(){
 
 function refreshCounts(){
   const w=curWeek(); const exs=w.days[state.day]; if(!exs) return; const log=dayCache[keyFor(state.wk,state.day)]||{};
-  let done=0; exs.forEach((_,i)=>{ if(log[i]&&log[i].done) done++; });
+  let done=0; exs.forEach((ex,i)=>{ if(dayRecord(log,ex,i)?.done) done++; });
   const pb=document.querySelector('.daybar .prog'); if(pb) pb.innerHTML=`<b>${done}</b>/${exs.length} done`;
   // tab ring
   const tab=document.querySelector(`.tab[data-d="${state.day}"] .ring`); if(tab) tab.textContent=`${done}/${exs.length}`;
 }
 
 async function renderAll(){
+  try{await refreshCustomProgram();}catch(e){alert('Could not load your recurring plan. Your saved data has not been changed. '+e.message);return;}
   await loadFinWk(state.wk);
   persistPos();
   renderHeader();
@@ -958,6 +987,106 @@ buildIndexes();
 // switch the active program (per profile) and rebuild the derived indexes in place
 function setProgram(user){ DATA=pickProgram(user); buildIndexes(); }
 
+/* Personal recurring additions: versioned rules + stable log keys. The shipped
+ * schedule and its numeric log slots are never edited or renumbered. */
+const CUSTOM_PROGRAM_KEY='bts:custom:program:v1';
+function programRank(cycle,wk,day){return cycle*1000+wk*10+PDAYS.indexOf(day);}
+function validateCustomProgram(plan){
+  if(!plan||plan.version!==1||!Array.isArray(plan.rules)||plan.rules.length>100) throw Error('The saved recurring plan could not be read.');
+  const ids=new Set();
+  for(const rule of plan.rules){
+    if(!rule||typeof rule.id!=='string'||!/^[a-zA-Z0-9-]{1,80}$/.test(rule.id)||ids.has(rule.id)||!Array.isArray(rule.versions)||!rule.versions.length) throw Error('Invalid recurring exercise.');
+    ids.add(rule.id);
+    for(const v of rule.versions){
+      if(!Number.isSafeInteger(v.from)||v.from<0||typeof v.active!=='boolean'||!Array.isArray(v.days)||!v.days.length||v.days.some(d=>!PDAYS.includes(d))||!v.exercise||typeof v.exercise.name!=='string'||!v.exercise.name.trim()||v.exercise.name.length>100||!RES_ORDER.includes(v.exercise.equipment)||typeof v.exercise.label!=='string'||v.exercise.label.length>80||!Number.isInteger(v.sets)||v.sets<1||v.sets>10||typeof v.reps!=='string'||!/^\d{1,3}(?:-\d{1,3})?$/.test(v.reps)) throw Error('Check the exercise, workout days, sets and rep range.');
+      const range=v.reps.split('-').map(Number);if(range.some(n=>n<1)||range.length===2&&range[1]<range[0])throw Error('Enter a rep range such as 8-12.');
+    }
+  }
+  return plan;
+}
+async function loadCustomProgram(){
+  const keys=await window.storage.list(CUSTOM_PROGRAM_KEY,false);
+  if(!keys?.keys?.includes(CUSTOM_PROGRAM_KEY)) return {version:1,rules:[]};
+  const saved=await window.storage.get(CUSTOM_PROGRAM_KEY,false);
+  return validateCustomProgram(JSON.parse(saved.value));
+}
+function ruleAt(rule,rank){return rule.versions.filter(v=>v.from<=rank).sort((a,b)=>a.from-b.from).pop();}
+function customizedProgram(base,plan,cycle,logs={},finished={}){
+  validateCustomProgram(plan);
+  return {...base,weeks:base.weeks.map(w=>({...w,days:Object.fromEntries(Object.entries(w.days).map(([day,scheduled])=>{
+    if(!PDAYS.includes(day))return [day,scheduled];
+    const rows=scheduled.slice(), log=logs[keyFor(w.n,day)]||{}, seen=new Set();
+    const closed=finished['bts:fin:w'+w.n+':'+day]||finished['bts:finwk:w'+w.n];
+    for(const rule of plan.rules){
+      const slot='extra:'+rule.id,rec=log[slot],v=ruleAt(rule,programRank(cycle,w.n,day));
+      if(rec?.planned?.ex&&(hasSessionData(rec)||closed)) {rows.push({...rec.planned,logKey:slot});seen.add(slot);continue;}
+      if(!v?.active||!v.days.includes(day)||finished['bts:fin:w'+w.n+':'+day]||finished['bts:finwk:w'+w.n])continue;
+      // If this exact lift/setup is already in the day's plan, keep its normal
+      // prescription rather than silently adding a duplicate or extra sets.
+      const identity=EH.key(v.exercise);
+      if(rows.some(ex=>EH.key(EH.identity(ex))===identity))continue;
+      rows.push({ex:v.exercise.name,sets:v.sets,reps:v.reps,rest:'As needed',wu:'As needed',lrpe:'Your choice',tech:'',notes:'Personal recurring exercise.',logKey:slot,customIdentity:{...v.exercise}});seen.add(slot);
+    }
+    for(const [slot,rec] of Object.entries(log)) if(slot.startsWith('extra:')&&!seen.has(slot)&&rec?.planned?.ex&&(hasSessionData(rec)||closed)) rows.push({...rec.planned,logKey:slot});
+    return [day,rows];
+  }))}))};
+}
+async function refreshCustomProgram(){
+  const plan=await loadCustomProgram(), logs={}, finished={};
+  const base=pickProgram(LL_USER),cycle=(await loadBaseline()).cycles||0;
+  for(const w of base.weeks){
+    finished['bts:finwk:w'+w.n]=await loadFinWk(w.n);
+    for(const day of PDAYS){logs[keyFor(w.n,day)]=await loadDay(w.n,day);finished['bts:fin:w'+w.n+':'+day]=await loadFin(w.n,day);}
+  }
+  DATA=customizedProgram(base,plan,cycle,logs,finished);buildIndexes();return plan;
+}
+async function saveCustomRule(id,version){
+  await flushDayWrites();
+  const plan=await loadCustomProgram(),existing=plan.rules.find(r=>r.id===id);
+  if(existing){
+    // Keep earlier revisions; an edit replaces this rule's future schedule.
+    existing.versions=existing.versions.filter(v=>v.from<version.from);existing.versions.push(version);
+  }else plan.rules.push({id,versions:[version]});
+  validateCustomProgram(plan);
+  await window.storage.set(CUSTOM_PROGRAM_KEY,JSON.stringify(plan),false);
+  scheduleCloudPush();await renderAll();
+}
+async function showCustomProgram(editId=null){
+  let plan;try{plan=await loadCustomProgram();}catch(e){alert(e.message);return;}
+  const cycle=(await loadBaseline()).cycles||0,from=programRank(cycle,state.wk,state.day);
+  const existing=plan.rules.find(r=>r.id===editId),current=existing?(ruleAt(existing,from)||existing.versions[existing.versions.length-1]):null;
+  const names=[...new Set(pickProgram(LL_USER).weeks.flatMap(w=>PDAYS.flatMap(d=>(w.days[d]||[]).map(ex=>ex.ex))))].sort();
+  sheet.innerHTML=`<div class="grab"></div><h2>${existing?'Edit recurring exercise':'Your recurring exercises'}</h2><p>Changes start Week ${state.wk}, ${DAYS.find(d=>d.k===state.day).dow}. Saved sets and completed sessions stay as they were. Additions repeat into the next cycle.</p>`;
+  if(!existing&&plan.rules.length){
+    const list=el('div','recurring-list');
+    for(const rule of plan.rules){const v=ruleAt(rule,from)||rule.versions[rule.versions.length-1];const b=el('button','mopt');b.textContent=EH.label(v.exercise)+' · '+(v.active?v.days.map(d=>d.toUpperCase()).join('/'):'Stopped');b.onclick=()=>showCustomProgram(rule.id);list.appendChild(b);}sheet.appendChild(list);
+  }
+  const form=el('form','recurring-form');
+  form.innerHTML=`<label>Exercise<input name="exercise" list="recurringNames" required maxlength="100" placeholder="e.g. High-Cable Lateral Raise"></label><datalist id="recurringNames">${names.map(n=>`<option value="${bookAttr(n)}"></option>`).join('')}</datalist><label>Equipment<select name="equipment">${RES_ORDER.map(k=>`<option value="${k}">${WRES[k].label}</option>`).join('')}</select></label><label>Machine / setup name (optional)<input name="setup" maxlength="80" placeholder="Same name shares the same PR history"></label><div class="recurring-fields"><label>Sets<input name="sets" type="number" min="1" max="10" step="1" value="3" required></label><label>Rep range<input name="reps" inputmode="text" placeholder="e.g. 10-15" required pattern="[0-9]{1,3}(-[0-9]{1,3})?"></label></div><fieldset><legend>Repeat on</legend>${PDAYS.map(d=>`<label><input type="checkbox" name="days" value="${d}"> ${DAYS.find(x=>x.k===d).dow}</label>`).join('')}</fieldset><p class="recurring-note">If this exercise and equipment are already scheduled, that day keeps its existing sets. Give different machines distinct setup names.</p><p class="recurring-error" role="alert"></p><button class="databtn" type="submit">${existing?'Save changes':'Add recurring exercise'}</button>`;
+  const field=name=>form.querySelector(`[name="${name}"]`);
+  if(current){field('exercise').value=current.exercise.name;field('equipment').value=current.exercise.equipment;field('setup').value=current.exercise.label;field('sets').value=current.sets;field('reps').value=current.reps;}
+  form.querySelectorAll('[name="days"]').forEach(c=>c.checked=(current?.days||[state.day]).includes(c.value));
+  field('exercise').addEventListener('change',()=>{if(!existing)field('equipment').value=resTypeFor(field('exercise').value);});
+  const error=form.querySelector('.recurring-error');let saving=false;
+  async function apply(active){
+    if(saving)return;
+    const exercise={name:field('exercise').value.trim().replace(/\s+/g,' '),equipment:field('equipment').value,label:field('setup').value.trim().replace(/\s+/g,' ')};
+    exercise.group=EX_GROUP[exercise.name]||'Other';
+    const days=[...form.querySelectorAll('[name="days"]')].filter(c=>c.checked).map(c=>c.value);
+    const version={from,active,exercise,days,sets:Number(field('sets').value),reps:field('reps').value.trim()};
+    const duplicate=plan.rules.find(r=>r.id!==editId&&ruleAt(r,from)?.active&&EH.key(ruleAt(r,from).exercise)===EH.key(exercise));
+    if(active&&duplicate){error.textContent='That setup already has a recurring plan. Open it above to change its days.';return;}
+    saving=true;form.querySelectorAll('button').forEach(b=>b.disabled=true);
+    try{await saveCustomRule(editId||crypto.randomUUID(),version);scrim.classList.remove('show');}
+    catch(e){error.textContent=e.message||'Could not save. Your existing plan is unchanged.';}
+    finally{saving=false;form.querySelectorAll('button').forEach(b=>b.disabled=false);}
+  }
+  form.addEventListener('submit',e=>{e.preventDefault();if(form.reportValidity())apply(true);});
+  if(existing&&current.active){const stop=el('button','databtn','Stop from this workout onward');stop.type='button';stop.onclick=()=>apply(false);form.appendChild(stop);}
+  const cancel=el('button','databtn','Cancel');cancel.type='button';cancel.onclick=()=>scrim.classList.remove('show');form.appendChild(cancel);
+  sheet.appendChild(form);scrim.classList.add('show');
+}
+
 /* ===================== muscle recovery tracker ===================== */
 // Ordered list of tracked muscles (front + back).
 const MUSCLES=['Chest','Shoulders','Rear Delts','Back','Lower Back','Triceps','Biceps','Forearms','Upper Abs','Lower Abs','Obliques','Quads','Adductors','Hamstrings','Glutes','Calves'];
@@ -1049,7 +1178,7 @@ async function volumePoints(group){
   const perWeek={},sched={};
   for(const w of DATA.weeks) for(const day of PDAYS){
     const log=await loadDay(w.n,day);
-    (w.days[day]||[]).forEach((planned,i)=>{const id=EH.identity(planned,log[i]);
+    (w.days[day]||[]).forEach((planned,i)=>{const id=EH.identity(planned,dayRecord(log,planned,i));
       if(!group||id.group===group) (sched[w.n]||(sched[w.n]=new Set())).add(EH.key(id)); });
   }
   for(const e of await historyEntries()){
@@ -2091,7 +2220,7 @@ async function startNewProgram(useLegacy){
   try{ base.archivedAt=new Date().toISOString(); }catch(_){}
   // keep a raw safety copy of everything we're about to clear
   const cyc=base.cycles;
-  for(const k in all){ if(/^bts:(log|fin|finwk|wed):/.test(k)){ await window.storage.set('bts:arch:c'+cyc+':'+k, JSON.stringify(all[k]), false); } }
+  for(const k in all){ if(k===CUSTOM_PROGRAM_KEY||/^bts:(log|fin|finwk|wed):/.test(k)){ await window.storage.set('bts:arch:c'+cyc+':'+k, JSON.stringify(all[k]), false); } }
   await saveBaseline(base);
   for(const k of await localKeys()){ if(/^bts:(log|fin|finwk|wed):/.test(k)){ try{ await window.storage.delete(k,false); }catch(_){} } }
   try{ await window.storage.set('bts:prog:v2','1',false); }catch(_){}
