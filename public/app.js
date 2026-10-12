@@ -1648,7 +1648,122 @@ function showBalanceDetail(name){
   scrim.classList.add('show');
 }
 
+// Read-only record book. Compare actual sets at the same rep count; never infer
+// attendance, dates, or missing sets from gaps in this selectively logged history.
+function buildRecordBook(entries, baseline={}){
+  const lifts=new Map();
+  const get=(key,id)=>{
+    if(!lifts.has(key)) lifts.set(key,{key,id,sets:[],milestones:[],tracks:{},best:null,prior:[],carried:0,rank:-1});
+    return lifts.get(key);
+  };
+  for(const e of entries){
+    if(!hasLoggedSets(e.rec)) continue;
+    const lift=get(e.ex.historyKey,e.id);
+    lift.id=e.id;
+    const session=e.wk*10+PDAYS.indexOf(e.day);
+    lift.rank=Math.max(lift.rank,session);
+    (e.rec.sets||[]).forEach((s,index)=>{
+      if(!s || s.w==null || s.w==='' || s.r==null || s.r==='') return;
+      const w=Number(s.w),r=Number(s.r);
+      if(!Number.isFinite(w)||!Number.isFinite(r)||r<=0||w<0||(w===0&&e.id.equipment!=='bodyweight')) return;
+      const point={w,r,wk:e.wk,day:e.day,index,session};
+      lift.sets.push(point);
+      if(!lift.best||w>lift.best.w||(w===lift.best.w&&r>lift.best.r)) lift.best=point;
+    });
+  }
+  // A carried estimate is not an actual set. Keep it separate, including when
+  // a legacy baseline has no recoverable set history at all.
+  for(const key of new Set([...Object.keys(baseline.exBest||{}),...Object.keys(baseline.lastSets||{})])){
+    try{
+      const [name,equipment,label]=JSON.parse(key.slice(9));
+      if(!key.startsWith('exercise:')||!name||!WRES[equipment]) continue;
+      const lift=get(key,{name,equipment,label});
+      lift.carried=Number(baseline.exBest?.[key])||0;
+      lift.prior=(baseline.lastSets?.[key]||[]).filter(s=>s&&s.w!==''&&s.w!=null&&Number.isFinite(Number(s.w))&&Number(s.w)>=0&&Number.isFinite(Number(s.r))&&Number(s.r)>0).map(s=>({w:Number(s.w),r:Number(s.r)}));
+    }catch(_){}
+  }
+  for(const lift of lifts.values()){
+    // Collapse repeated sets/slots within a scheduled day into one point per
+    // rep count, so set order cannot create spurious milestones.
+    const sessions=new Map();
+    for(const p of lift.sets){
+      const track=p.w===0&&lift.id.equipment==='bodyweight'?'bodyweight':String(p.r);
+      const k=p.session+'|'+track, value=track==='bodyweight'?p.r:p.w;
+      if(!sessions.has(k)||value>sessions.get(k).value) sessions.set(k,{...p,track,value});
+    }
+    for(const p of [...sessions.values()].sort((a,b)=>a.session-b.session)){
+      const track=lift.tracks[p.track]||(lift.tracks[p.track]=[]),previous=track[track.length-1];
+      if(!previous||p.value>previous.value){
+        const milestone={...p,first:!previous,gain:previous?p.value-previous.value:0,key:lift.key};
+        track.push(milestone);lift.milestones.push(milestone);
+      }
+    }
+  }
+  return [...lifts.values()].sort((a,b)=>b.rank-a.rank||EH.label(a.id).localeCompare(EH.label(b.id)));
+}
+let bookState={key:null,open:false,track:null}, bookRenderVersion=0;
+const bookNumber=n=>Number(n.toFixed(2)).toLocaleString();
+const bookSet=(p,id)=>id.equipment==='bodyweight'&&p.w===0?`${bookNumber(p.r)} reps · bodyweight`:`${bookNumber(p.w)} lb${id.equipment==='dumbbell'?' each':id.equipment==='bodyweight'?' added':''} × ${bookNumber(p.r)}`;
+const bookWhen=p=>`Week ${p.wk} · ${({mon:'Monday',wed:'Wednesday',fri:'Friday',sat:'Saturday'})[p.day]||p.day}`;
+const bookAttr=s=>esc(String(s)).replace(/"/g,'&quot;');
+function bookPrior(lift){
+  if(!lift.prior.length&&!lift.carried) return '';
+  return `<details class="book-prior"><summary>Previous cycle reference</summary>${lift.prior.length?`<p>Last saved sets: ${lift.prior.map(p=>bookSet(p,lift.id)).join(' · ')}</p>`:''}${lift.carried?`<p>Carried best estimated 1RM: ${bookNumber(lift.carried)} lb</p>`:''}<p>Kept separately from this cycle’s actual-set milestones.</p></details>`;
+}
+async function renderRecordBook(){
+  const version=++bookRenderVersion, user=LL_USER;
+  const entries=await historyEntries(),baseline=await loadBaseline();
+  if(version!==bookRenderVersion||user!==LL_USER) return;
+  const lifts=buildRecordBook(entries,baseline),root=document.getElementById('recordBook');
+  if(!lifts.length){
+    bookState={key:null,open:false,track:null};
+    root.innerHTML='<div class="book-heading"><h1>Your record book</h1><p>Your lifts. Your milestones.</p></div><div class="book-empty"><h2>Your first benchmark starts here</h2><p>Save a weight and rep count in Train. Your records will appear here, with a separate journey for each exercise and equipment setup.</p><p>Only logging PRs? That works here.</p><button class="book-action" data-book-train>Go to Train</button></div>';
+    return;
+  }
+  const lift=lifts.find(l=>l.key===bookState.key)||lifts[0];bookState.key=lift.key;
+  const identity=`<p class="book-equipment">${esc(EH.label(lift.id))}</p>`;
+  if(bookState.open){
+    const keys=Object.keys(lift.tracks).sort((a,b)=>a==='bodyweight'?-1:b==='bodyweight'?1:Number(a)-Number(b));
+    const defaultTrack=lift.best?(lift.best.w===0?'bodyweight':String(lift.best.r)):null;
+    const track=keys.includes(bookState.track)?bookState.track:defaultTrack;bookState.track=track;
+    const points=lift.tracks[track]||[],max=points.length?points[points.length-1].value:1;
+    root.innerHTML=`<button class="book-back" data-book-back>‹ Record book</button><div class="book-heading"><h1>PR journey</h1>${identity}<p>This cycle · saved milestones</p></div>`
+      +(keys.length?`<label class="book-label">Compare at the same reps<select id="bookTrack">${keys.map(k=>`<option value="${k}"${k===track?' selected':''}>${k==='bodyweight'?'Bodyweight reps':k+' reps'}</option>`).join('')}</select></label>`:'')
+      +`<div class="book-journey">${points.map(p=>`<details class="book-milestone"><summary><span class="book-milestone-top"><span>${bookWhen(p)}</span><strong>${bookSet(p,lift.id)}</strong></span><span class="book-bar-track" aria-hidden="true"><span style="width:${p.value/max*100}%"></span></span><span class="book-milestone-caption">${p.first?'First saved benchmark':`+${bookNumber(p.gain)} ${track==='bodyweight'?'reps':'lb'} · new cycle best`} <span aria-hidden="true">⌄</span></span></summary><p>${p.first?'Your starting point for this comparison.':'Compared with the previous saved milestone at '+(track==='bodyweight'?'bodyweight':p.r+' reps')+'.'}</p><p>Saved sets that day: ${lift.sets.filter(s=>s.session===p.session).map(s=>bookSet(s,lift.id)).join(' · ')}</p></details>`).join('')||'<p class="book-empty">No complete sets saved in this cycle yet.</p>'}</div>`
+      +`<p class="book-note">Gaps mean nothing was logged here. They don’t mean you missed a workout. Milestones use program week and day, not calendar dates.</p>`+bookPrior(lift);
+  } else {
+    const recent=lifts.flatMap(l=>l.milestones.map(p=>({...p,lift:l}))).sort((a,b)=>b.session-a.session).slice(0,3);
+    const bestTrack=lift.best?(lift.best.w===0?'bodyweight':String(lift.best.r)):null;
+    const bestPoints=lift.tracks[bestTrack]||[];
+    const gain=bestPoints.length>1?`+${bookNumber(bestPoints[bestPoints.length-1].value-bestPoints[0].value)} ${bestTrack==='bodyweight'?'reps at bodyweight':'lb at '+bestTrack+' reps'} since your first saved benchmark`:'';
+    root.innerHTML=`<div class="book-heading"><h1>Your record book</h1><p>Your lifts. Your milestones.</p></div><label class="book-label">Exercise &amp; equipment<select id="bookLift">${lifts.map(l=>`<option value="${bookAttr(l.key)}"${l===lift?' selected':''}>${esc(EH.label(l.id))}</option>`).join('')}</select></label>`
+      +`<button class="book-benchmark" data-book-open="${bookAttr(lift.key)}"><span class="book-eyebrow">This cycle · heaviest saved set</span><span class="book-value">${lift.best?bookSet(lift.best,lift.id):'No complete set yet'}</span><span class="book-equipment">${lift.best?bookWhen(lift.best):'Save weight and reps to start your journey'}</span>${gain?`<span class="book-gain">${gain}</span>`:''}<span class="book-open-label">Open PR journey <span aria-hidden="true">→</span></span></button>`
+      +bookPrior(lift)+`<h2 class="book-section-title">Recent milestones <span>this cycle</span></h2><div class="book-recent">${recent.map(p=>`<button class="book-recent-row" data-book-open="${bookAttr(p.key)}" data-book-track="${p.track}"><span><strong>${esc(p.lift.id.name)}</strong><small>${esc((WRES[p.lift.id.equipment]||WRES.machine).label+(p.lift.id.label?' · '+p.lift.id.label:''))}</small><small>${bookWhen(p)} · ${p.first?'First benchmark':'New '+(p.track==='bodyweight'?'bodyweight':p.r+'-rep')+' best'}</small></span><span class="book-recent-value">${bookSet(p,p.lift.id)} <span aria-hidden="true">›</span></span></button>`).join('')||'<p class="book-note">Save a complete set in Train to start this cycle’s milestones.</p>'}</div><p class="book-note">Only saved sets count. Each exercise and equipment setup has its own history.</p>`;
+  }
+}
+document.getElementById('recordBook').addEventListener('change',e=>{
+  if(e.target.id==='bookLift'){bookState.key=e.target.value;bookState.track=null;}
+  else if(e.target.id==='bookTrack')bookState.track=e.target.value;
+  else return;
+  const control=e.target.id;
+  renderRecordBook().then(()=>document.getElementById(control)?.focus());
+});
+document.getElementById('recordBook').addEventListener('click',e=>{
+  const open=e.target.closest('[data-book-open]');
+  if(open){bookState={key:open.dataset.bookOpen,open:true,track:open.dataset.bookTrack||null};}
+  else if(e.target.closest('[data-book-back]'))bookState.open=false;
+  else if(e.target.closest('[data-book-train]')){document.querySelector('[data-v="train"]').click();return;}
+  else return;
+  renderRecordBook().then(()=>{document.querySelector('#recordBook '+(bookState.open?'.book-back':'#bookLift'))?.focus();window.scrollTo(0,0);});
+});
+document.getElementById('progressDetails').addEventListener('toggle',e=>{
+  if(e.target.open){renderAnalytics();renderShelf();renderRecovery();}
+});
 async function renderProg(){
+  await renderRecordBook();
+  if(document.getElementById('progressDetails').open) await renderAnalytics();
+}
+async function renderAnalytics(){
   if(!progState.sel.name) progState.sel={type:'all', name:'All movements'};
   const type=progState.sel.type, isVol = type==='group'||type==='full', noMetric = isVol||type==='coach';
   document.querySelector('.bcEyebrow').textContent = type==='coach'?'Coach Danny':(type==='all'?'All movements':(type==='full'?'Total volume':(type==='group'?'Muscle group':'Progression')));
@@ -2011,6 +2126,9 @@ async function switchUser(){
   await clearLocal();
   dayCache={}; finCache={}; finWkCache={}; wedCache={}; prFiredSession.clear(); PR_BASE={}; clearDirty();
   LL_USER=null; llDel('ll:user');
+  bookState={key:null,open:false,track:null}; ++bookRenderVersion;
+  document.getElementById('recordBook').innerHTML='';
+  document.getElementById('progressDetails').open=false;
   updateUserChip(); showSignin();
 }
 

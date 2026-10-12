@@ -173,3 +173,30 @@ Starting weight and Loading mode columns. The field is not applied to dumbbells
 or bodyweight exercises. Six additional regression tests cover the 116 + 45 + 45
 case, single-stack loading, lower bounds, metadata edits, persistence/rollover,
 and legacy/zero/decimal/invalid values.
+
+### Record book and PR journey
+
+Progress now opens with a record book: choose a saved exercise/setup, see the
+heaviest complete set in this cycle, and open its PR journey. Recent milestones
+link directly to their exercise and rep count. Journey comparisons use the same
+rep count (or reps at zero-added-weight bodyweight), collapse repeated sets in
+one scheduled day, and show only new cycle highs. Lower sets and logging gaps
+are not labelled as declines. Week/day labels are program positions, not dates.
+Dumbbell weights are shown per dumbbell; machine weights use the saved total.
+
+This is a read-only view of existing logs, including switched-away variants.
+There is no storage migration, rewrite, or change to the PR-only logging flow.
+Incomplete sets do not become benchmarks. Prior-cycle last sets and carried
+estimated 1RM are shown as a separate reference, never invented as dated or
+actual-set milestones. The journey covers the current cycle, not raw archives.
+The existing estimated-1RM PR notifications remain unchanged; same-rep cycle
+milestones are a separate comparison. Volume, recovery, and the old comparison
+board remain available under More details, with a saved-data coverage note.
+
+Five additional tests cover same-rep milestones and gaps, distinct machine
+histories, bodyweight/dumbbell units, cycle carryover, and empty/partial logs.
+All 26 tests pass. Browser checks with an isolated synthetic profile cover
+selection, opening/back navigation, rep filtering, milestone disclosure, reload,
+and access to the retained analytics. The record book fits 390px and 320px phone
+viewports; the date is hidden at the narrowest width to keep the header within
+the screen. Production storage was not used.

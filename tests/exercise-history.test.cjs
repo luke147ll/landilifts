@@ -13,6 +13,45 @@ function app(){
   return {run:code=>vm.runInContext(code.includes("await") && !code.startsWith("(async") ? "(async()=> ("+code+"))()" : code,c),store,c};
 }
 const setup=`const planned=DATA.weeks[0].days.mon[0]; const original=EH.identity(planned); const leg=EH.identity({ex:'Leg Press'}); const db=EH.identity({ex:'DB Walking Lunge'});`;
+test('record book compares same-rep milestones, ignores gaps and repeated or lower sets',async()=>{
+ const {run,store}=app();run(setup);
+ run(`dayCache[keyFor(1,'mon')]={0:{sets:[{w:'186',r:'8'},{w:'176',r:'8'},{w:'140',r:'12'}]}};
+ dayCache[keyFor(3,'mon')]={0:{sets:[{w:'196',r:'8'},{w:'196',r:'8'},{w:'150',r:'12'}]}};
+ dayCache[keyFor(6,'mon')]={0:{sets:[{w:'190',r:'8'},{w:'206',r:''},{w:'Infinity',r:'8'}]}};`);
+ await run('historyEntries()'); // Fill read caches before checking the pure projection.
+ const before=run('JSON.stringify(dayCache)');
+ assert.equal(await run(`(async()=>{const l=buildRecordBook(await historyEntries())[0];return JSON.stringify({best:l.best.w,eight:l.tracks['8'].map(p=>[p.wk,p.w,p.gain]),twelve:l.tracks['12'].map(p=>p.w)});})()`),JSON.stringify({best:196,eight:[[1,186,0],[3,196,10]],twelve:[140,150]}));
+ assert.equal(run('JSON.stringify(dayCache)'),before);assert.equal(store.size,0);
+});
+test('record book keeps swapped and named equipment separate without recalculating totals',async()=>{
+ const {run}=app();run(setup);
+ run(`dayCache[keyFor(1,'mon')]={0:EH.select(planned,{sets:[{w:'100',r:'8'}]},{...original,label:'A',baseWeight:116})};
+ dayCache[keyFor(1,'mon')][0].sets=[{w:'206',r:'8'}];
+ dayCache[keyFor(2,'mon')]={0:{exercise:{...original,label:'B',baseWeight:200},sets:[{w:'50',r:'8'}]}};`);
+ assert.equal(await run(`(async()=>{const ls=buildRecordBook(await historyEntries());return ls.length===3&&ls.find(l=>l.id.label==='A').best.w===206&&ls.find(l=>l.id.label==='B').best.w===50&&ls.find(l=>l.id.label==='').best.w===100;})()`),true);
+});
+test('record book supports bodyweight reps and per-dumbbell units, but not missing weights',async()=>{
+ const {run}=app();run(setup);
+ run(`const body=EH.identity({ex:'Wide-Grip Pull-Up'});dayCache[keyFor(1,'mon')]={0:{exercise:body,sets:[{w:'0',r:'8'},{r:'20'}]}};
+ dayCache[keyFor(2,'mon')]={0:{exercise:body,sets:[{w:'0',r:'10'},{w:'-10',r:'12'}]}};`);
+ assert.equal(await run(`(async()=>{const l=buildRecordBook(await historyEntries())[0];return l.tracks.bodyweight.length===2&&l.best.r===10&&l.tracks.bodyweight[1].gain===2;})()`),true);
+ assert.equal(run(`bookSet({w:40,r:8},db)`),'40 lb each × 8');
+ assert.equal(run(`bookSet({w:0,r:10},body)`),'10 reps · bodyweight');
+});
+test('record book keeps carried estimates separate from actual-set benchmarks after rollover',async()=>{
+ const {run,store}=app();run(setup);
+ run(`dayCache[keyFor(1,'mon')]={0:{sets:[{w:'206',r:'8'}]}};renderAll=async()=>{};queueSave(1,'mon');`);
+ await run('startNewProgram(false)');
+ const before=JSON.stringify([...store]);
+ assert.equal(await run(`(async()=>{const ls=buildRecordBook(await historyEntries(),await loadBaseline());return ls.length===1&&ls[0].best===null&&ls[0].milestones.length===0&&ls[0].prior[0].w===206&&ls[0].carried>206;})()`),true);
+ assert.equal(JSON.stringify([...store]),before);
+});
+test('record book handles empty and partial-only logs without inventing a benchmark',async()=>{
+ const {run}=app();run(setup);
+ assert.equal(await run(`buildRecordBook(await historyEntries()).length`),0);
+ run(`dayCache[keyFor(1,'mon')]={0:{sets:[{w:'200'},{r:'8'}]}};`);
+ assert.equal(await run(`(async()=>{const l=buildRecordBook(await historyEntries())[0];return l.best===null&&l.milestones.length===0;})()`),true);
+});
 test('legacy reads are nonmutating, equipment overrides remain separate',()=>{
  const {run}=app();run(setup);
  assert.equal(run(`(()=>{const rec={done:true,resType:'plates',sets:[{w:'100',r:'8'}],note:'keep'};const before=JSON.stringify(rec);const e=EH.entries(planned,rec)[0];return e.id.equipment==='plates'&&JSON.stringify(rec)===before&&e.ex.historyKey!==EH.key(original);})()`),true);
