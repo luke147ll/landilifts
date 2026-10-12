@@ -249,8 +249,12 @@ edit, reload, stop, and preserved history in the record book at phone width.
 
 The Program tab shows planned weekly working sets, workout and exercise counts,
 and sets by primary muscle (including separate front, side and rear delts).
-Each set counts once under its assigned primary target; warm-ups and indirect
-work are excluded. Tap a muscle to filter the editable workout list. Totals
+Direct sets count once under the assigned primary target. A separate indirect
+column counts each planned set once for each mapped assisting muscle, using
+secondary entries in the existing exercise map (without fractional weighting).
+These are assisting-set counts, not equivalent direct sets; warm-ups are excluded.
+Unknown movements are flagged as unmapped rather than given guessed contributions.
+Tap a muscle to see both direct and indirect exercise sources, labeled separately. Totals
 describe the plan, not completed volume, and work with sparse PR-only logging.
 
 Edit a scheduled lift's movement, equipment/setup, primary muscle, sets or rep

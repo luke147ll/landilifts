@@ -23,13 +23,20 @@ function primaryMuscle(ex){
   const group=ex.customIdentity?.group||(typeof EX_GROUP!=='undefined'?EX_GROUP[name]:null);
   return PROGRAM_MUSCLES.includes(group)?group:'Other';
 }
+function indirectMuscles(ex){
+  const map=EX_MUSCLE[ex.ex];
+  if(!map)return null;
+  const aliases={'Shoulders':'Front delts','Rear Delts':'Rear delts','Lower Back':'Lower back','Upper Abs':'Core','Lower Abs':'Core','Obliques':'Core'};
+  return [...new Set(Object.entries(map).filter(([,weight])=>weight>0&&weight<1).map(([m])=>aliases[m]||m))]
+    .filter(m=>PROGRAM_MUSCLES.includes(m)&&m!==primaryMuscle(ex));
+}
 function plannedWeekStats(week){
-  const groups=Object.fromEntries(PROGRAM_MUSCLES.map(m=>[m,0])),days=[];let total=0,movements=0;
-  for(const day of PDAYS){const exercises=(week.days[day]||[]).map((ex,index)=>({ex,index,muscle:primaryMuscle(ex),sets:Math.max(0,Number(ex.sets)||0)}));
-    for(const item of exercises){groups[item.muscle]+=item.sets;total+=item.sets;movements++;}
+  const groups=Object.fromEntries(PROGRAM_MUSCLES.map(m=>[m,0])),indirect={...groups},days=[];let total=0,movements=0,unmapped=0;
+  for(const day of PDAYS){const exercises=(week.days[day]||[]).map((ex,index)=>({ex,index,muscle:primaryMuscle(ex),indirect:indirectMuscles(ex),sets:Math.max(0,Number(ex.sets)||0)}));
+    for(const item of exercises){groups[item.muscle]+=item.sets;total+=item.sets;movements++;if(item.indirect===null)unmapped++;for(const m of item.indirect||[])indirect[m]+=item.sets;}
     days.push({day,exercises,sets:exercises.reduce((n,e)=>n+e.sets,0)});
   }
-  return {groups,days,total,movements,workouts:days.filter(d=>d.exercises.length).length};
+  return {groups,indirect,unmapped,days,total,movements,workouts:days.filter(d=>d.exercises.length).length};
 }
 function validateProgramEdits(edits){
   if(!Array.isArray(edits)||edits.length>200)throw Error('Invalid saved program edits.');
@@ -77,17 +84,17 @@ async function snapshotProgramDay(wk,day){
 }
 function renderProgramOverview(){
   const root=document.getElementById('programView');if(!root)return;
-  const week=DATA.weeks[state.wk-1],stats=plannedWeekStats(week),max=Math.max(1,...Object.values(stats.groups));
+  const week=DATA.weeks[state.wk-1],stats=plannedWeekStats(week),max=Math.max(1,...Object.values(stats.groups),...Object.values(stats.indirect));
   const openDays=[...root.querySelectorAll('details[open]')].map(e=>e.dataset.day);
-  const shown=PROGRAM_MUSCLES.filter(m=>stats.groups[m]>0||m==='Side delts');
-  root.innerHTML=`<div class="book-heading"><h1>Your program</h1><p>Plan your week. Make room for your priorities.</p></div><label class="book-label">Program week<select id="programWeek">${DATA.weeks.map(w=>`<option value="${w.n}"${w.n===state.wk?' selected':''}>Week ${w.n}${w.deload?' · Deload':''}</option>`).join('')}</select></label><div class="program-stats"><div><strong>${stats.total}</strong><span>planned sets</span></div><div><strong>${stats.workouts}</strong><span>workouts</span></div><div><strong>${stats.movements}</strong><span>exercise slots</span></div></div><h2 class="book-section-title">Weekly sets by muscle</h2><p class="book-note">Working sets, assigned once to each lift’s primary target. Warm-ups and indirect work are excluded. Tap a muscle to see its exercises.</p><div class="program-muscles">${shown.map(m=>`<button type="button" class="program-muscle" data-muscle="${m}" aria-pressed="${programFilter===m}"><span>${m}</span><span class="program-track" aria-hidden="true"><span style="width:${stats.groups[m]/max*100}%"></span></span><strong>${stats.groups[m]}</strong></button>`).join('')}</div><div class="program-list-heading"><h2 class="book-section-title">${programFilter?esc(programFilter)+' exercises':'Your workouts'}</h2>${programFilter?'<button class="book-action" data-clear-filter>Show all</button>':''}</div><button class="add-exercise" data-program-add>+ Add / manage recurring exercises</button><div class="program-days">${stats.days.map(d=>{
-    const items=d.exercises.filter(e=>!programFilter||e.muscle===programFilter);
+  const shown=PROGRAM_MUSCLES.filter(m=>stats.groups[m]>0||stats.indirect[m]>0||m==='Side delts');
+  root.innerHTML=`<div class="book-heading"><h1>Your program</h1><p>Plan your week. Make room for your priorities.</p></div><label class="book-label">Program week<select id="programWeek">${DATA.weeks.map(w=>`<option value="${w.n}"${w.n===state.wk?' selected':''}>Week ${w.n}${w.deload?' · Deload':''}</option>`).join('')}</select></label><div class="program-stats"><div><strong>${stats.total}</strong><span>planned sets</span></div><div><strong>${stats.workouts}</strong><span>workouts</span></div><div><strong>${stats.movements}</strong><span>exercise slots</span></div></div><h2 class="book-section-title">Weekly sets by muscle</h2><p class="book-note">Direct = sets targeting that muscle. Indirect = sets where it assists, such as triceps during pressing. Each assisting set counts once, not as an equivalent direct set. Warm-ups excluded. Tap a muscle to see both sources.</p>${stats.unmapped?`<p class="book-note">Indirect work is not mapped for ${stats.unmapped} exercise slot${stats.unmapped===1?'':'s'} this week; those contributions are not counted.</p>`:''}<div class="program-volume-legend"><span>Muscle</span><span>Direct</span><span>Indirect</span></div><div class="program-muscles">${shown.map(m=>`<button type="button" class="program-muscle" data-muscle="${m}" aria-pressed="${programFilter===m}"><span>${m}</span><span class="program-count"><span class="program-track" aria-hidden="true"><span style="width:${stats.groups[m]/max*100}%"></span></span><strong><span class="sr-only">Direct sets: </span>${stats.groups[m]}</strong></span><span class="program-count indirect"><span class="program-track" aria-hidden="true"><span style="width:${stats.indirect[m]/max*100}%"></span></span><strong><span class="sr-only">Indirect sets: </span>${stats.indirect[m]}</strong></span></button>`).join('')}</div><div class="program-list-heading"><h2 class="book-section-title">${programFilter?esc(programFilter)+' exercises':'Your workouts'}</h2>${programFilter?'<button class="book-action" data-clear-filter>Show all</button>':''}</div><button class="add-exercise" data-program-add>+ Add / manage recurring exercises</button><div class="program-days">${stats.days.map(d=>{
+    const items=d.exercises.filter(e=>!programFilter||e.muscle===programFilter||e.indirect?.includes(programFilter));
     const originals=pickProgram(LL_USER).weeks[state.wk-1].days[d.day]||[];
     const removed=originals.map((ex,index)=>({ex,index})).filter(o=>!d.exercises.some(e=>!e.ex.logKey&&(e.ex.slotKey??e.index)===o.index));
     if(programFilter&&!items.length)return '';
-    return `<details class="program-day" data-day="${d.day}"${openDays.includes(d.day)||programFilter?' open':''}><summary><span>${DAYS.find(x=>x.k===d.day).dow}</span><span>${programFilter?items.reduce((n,e)=>n+e.sets,0):d.sets} sets · ${items.length} exercises</span></summary>${items.map(({ex,index,muscle,sets})=>{
+    return `<details class="program-day" data-day="${d.day}"${openDays.includes(d.day)||programFilter?' open':''}><summary><span>${DAYS.find(x=>x.k===d.day).dow}</span><span>${programFilter?`${items.filter(e=>e.muscle===programFilter).reduce((n,e)=>n+e.sets,0)} direct · ${items.filter(e=>e.indirect?.includes(programFilter)).reduce((n,e)=>n+e.sets,0)} indirect`:d.sets+' sets'} · ${items.length} exercises</span></summary>${items.map(({ex,index,muscle,sets})=>{
       const locked=hasSessionData(dayRecord(dayCache[keyFor(state.wk,d.day)]||{},ex,index))||finCache['bts:fin:w'+state.wk+':'+d.day]||finWkCache['bts:finwk:w'+state.wk];
-      return `<button class="program-exercise" data-program-day="${d.day}" data-program-index="${index}"><span><strong>${esc(ex.ex)}</strong><small>${esc(EH.label(EH.identity(ex)).split(' · ').slice(1).join(' · '))} · ${muscle}</small><small>${ex.logKey?'Recurring extra':ex.programOverride?'Personal plan':'Scheduled'}${locked?' · Saved session protected':''}</small></span><span>${sets} × ${esc(ex.reps)}<small>Edit ›</small></span></button>`;
+      return `<button class="program-exercise" data-program-day="${d.day}" data-program-index="${index}"><span><strong>${esc(ex.ex)}</strong><small>${esc(EH.label(EH.identity(ex)).split(' · ').slice(1).join(' · '))} · ${muscle}</small><small>${ex.logKey?'Recurring extra':ex.programOverride?'Personal plan':'Scheduled'}${locked?' · Saved session protected':''}</small></span><span>${sets} × ${esc(ex.reps)}<small>${programFilter?(muscle===programFilter?'Direct':'Indirect')+' · ':''}Edit ›</small></span></button>`;
     }).join('')}${!programFilter&&removed.length?`<div class="program-removed">${removed.map(o=>`<button data-program-restore="${o.index}" data-program-day="${d.day}">${esc(o.ex.ex)} · removed · Restore / edit</button>`).join('')}</div>`:''}</details>`;
   }).join('')||'<p class="book-note">No exercises assigned to this muscle in this week.</p>'}</div>`;
 }

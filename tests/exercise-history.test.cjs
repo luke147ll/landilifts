@@ -15,6 +15,14 @@ function app(){
 const setup=`const planned=DATA.weeks[0].days.mon[0]; const original=EH.identity(planned); const leg=EH.identity({ex:'Leg Press'}); const db=EH.identity({ex:'DB Walking Lunge'});`;
 const customSetup=`const added={from:10,active:true,days:['mon','wed','fri'],exercise:{name:'DB Lateral Raise',equipment:'dumbbell',label:'',group:'Shoulders'},sets:3,reps:'10-15'}; const customPlan={version:1,rules:[{id:'side-delts',versions:[added]}]};`;
 const editSetup=`const source=pickProgram(null).weeks[0].days.mon[0]; const editVersion={from:10,active:true,exercise:{name:'DB Lateral Raise',equipment:'dumbbell',label:''},sets:4,reps:'12-15',muscle:'Side delts'};`;
+test('indirect sets separate pressing assistance from direct triceps work without inflating total sets',()=>{
+ const {run}=app();
+ assert.equal(run(`(()=>{const s=plannedWeekStats({days:{mon:[{ex:'Barbell Bench Press',sets:4},{ex:'Cable Triceps Pressdown',sets:3},{ex:'Machine Shoulder Press',sets:2}],wed:[],fri:[]}});return s.groups.Triceps===3&&s.indirect.Triceps===6&&s.groups['Front delts']===2&&s.indirect['Front delts']===4&&s.total===9&&s.unmapped===0;})()`),true);
+});
+test('indirect mapping deduplicates core targets, excludes direct targets and flags unknown movements',()=>{
+ const {run}=app();
+ assert.equal(run(`(()=>{const s=plannedWeekStats({days:{mon:[{ex:'High-Cable Lateral Raise',sets:3},{ex:'Cable Crunch',sets:3},{ex:'Custom press',sets:4,targetMuscle:'Chest'},{ex:'Barbell Bench Press',sets:2,targetMuscle:'Triceps'}],wed:[],fri:[]}});return s.indirect.Core===0&&s.indirect['Front delts']===2&&s.indirect.Triceps===0&&s.groups.Triceps===2&&s.unmapped===1&&s.total===12;})()`),true);
+});
 test('completed program snapshots retain removals and unlogged replacements without logging sets',async()=>{
  const {run,store}=app();run(editSetup);run('renderAll=async()=>{}');
  await run(`saveScheduledEdit('mon',source.ex,{...editVersion,sets:0})`);await run('refreshCustomProgram()');
