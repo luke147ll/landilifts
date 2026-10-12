@@ -9,11 +9,71 @@ function app(){
   const localStorage={getItem:k=>store.get(k)??null,setItem:(k,v)=>store.set(k,String(v)),removeItem:k=>store.delete(k),key:i=>[...store.keys()][i],get length(){return store.size}};
   const c=vm.createContext({console,localStorage,document:{getElementById:()=>element(),querySelector:()=>element(),querySelectorAll:()=>[],createElement:element,addEventListener:noop},navigator:{},setTimeout:()=>1,clearTimeout:noop,setInterval:()=>1,clearInterval:noop,alert:noop,confirm:()=>true,fetch:async()=>({ok:true}),URL,Blob});
   c.window=c; c.addEventListener=noop;
-  for(const f of ['data.js','exercise-history.js','app.js']) vm.runInContext(fs.readFileSync('public/'+f,'utf8').split('/* ---------- boot ---------- */')[0],c,{filename:f});
+  for(const f of ['data.js','exercise-history.js','program-overview.js','app.js']) vm.runInContext(fs.readFileSync('public/'+f,'utf8').split('/* ---------- boot ---------- */')[0],c,{filename:f});
   return {run:code=>vm.runInContext(code.includes("await") && !code.startsWith("(async") ? "(async()=> ("+code+"))()" : code,c),store,c};
 }
 const setup=`const planned=DATA.weeks[0].days.mon[0]; const original=EH.identity(planned); const leg=EH.identity({ex:'Leg Press'}); const db=EH.identity({ex:'DB Walking Lunge'});`;
 const customSetup=`const added={from:10,active:true,days:['mon','wed','fri'],exercise:{name:'DB Lateral Raise',equipment:'dumbbell',label:'',group:'Shoulders'},sets:3,reps:'10-15'}; const customPlan={version:1,rules:[{id:'side-delts',versions:[added]}]};`;
+const editSetup=`const source=pickProgram(null).weeks[0].days.mon[0]; const editVersion={from:10,active:true,exercise:{name:'DB Lateral Raise',equipment:'dumbbell',label:''},sets:4,reps:'12-15',muscle:'Side delts'};`;
+test('completed program snapshots retain removals and unlogged replacements without logging sets',async()=>{
+ const {run,store}=app();run(editSetup);run('renderAll=async()=>{}');
+ await run(`saveScheduledEdit('mon',source.ex,{...editVersion,sets:0})`);await run('refreshCustomProgram()');
+ await run(`snapshotProgramDay(1,'mon');flushDayWrites()`);
+ assert.equal(JSON.parse(store.get('bts:log:w1:mon'))[0].plannedRemoved,true);
+ await run(`window.storage.set('bts:fin:w1:mon',JSON.stringify({at:'saved'}));saveScheduledEdit('mon',source.ex,{...editVersion,active:false})`);
+ run('dayCache={};finCache={}');await run('refreshCustomProgram()');
+ assert.equal(run('DATA.weeks[0].days.mon[0].slotKey'),1);
+ await run(`saveScheduledEdit('mon',source.ex,{...editVersion,from:20})`);await run('refreshCustomProgram()');
+ await run(`snapshotProgramDay(2,'mon');flushDayWrites()`);
+ const saved=JSON.parse(store.get('bts:log:w2:mon'))[0];assert.equal(saved.planned.ex,'DB Lateral Raise');assert.equal(saved.sets.length,0);
+ await run(`window.storage.set('bts:finwk:w2',JSON.stringify({at:'saved'}));saveScheduledEdit('mon',source.ex,{...editVersion,from:20,active:false})`);
+ run('dayCache={};finWkCache={}');await run('refreshCustomProgram()');
+ assert.equal(run('DATA.weeks[1].days.mon[0].ex'),'DB Lateral Raise');
+});
+test('planned overview counts prescriptions once, including side delts, independent of logs',()=>{
+ const {run}=app();
+ assert.equal(run(`(()=>{const w={days:{mon:[{ex:'High-Cable Lateral Raise',sets:3},{ex:'Barbell Bench Press',sets:4}],wed:[{ex:'Custom raise',sets:2,targetMuscle:'Side delts'}],fri:[]}};const s=plannedWeekStats(w);return s.total===9&&s.groups['Side delts']===5&&s.groups.Chest===4&&s.groups.Triceps===0&&s.workouts===2;})()`),true);
+});
+test('scheduled edits preserve numeric slots after removing a movement and respect weekday and start week',()=>{
+ const {run}=app();run(editSetup);
+ assert.equal(run(`(()=>{const base=pickProgram(null),before=JSON.stringify(base),plan={version:1,rules:[],edits:[{day:'mon',source:source.ex,versions:[{...editVersion,from:30,sets:0}]}]};const p=customizedProgram(base,plan,0);return p.weeks[0].days.mon.length===base.weeks[0].days.mon.length&&p.weeks[2].days.mon[0].slotKey===1&&p.weeks[2].days.wed.length===base.weeks[2].days.wed.length&&JSON.stringify(base)===before;})()`),true);
+ run(`DATA=customizedProgram(pickProgram(null),{version:1,rules:[],edits:[{day:'mon',source:source.ex,versions:[{...editVersion,sets:0}]}]},0);setField(0,curWeek().days.mon[0],0,'w','50');`);
+ assert.equal(run(`dayCache[keyFor(1,'mon')][1].sets[0].w`),'50');
+ assert.equal(run(`dayCache[keyFor(1,'mon')][0]===undefined`),true);
+});
+test('replacement logs retain their identity and prescription after restoring the original plan',async()=>{
+ const {run}=app();run(editSetup);run(`renderAll=async()=>{};`);
+ await run(`saveScheduledEdit('mon',source.ex,editVersion)`);await run('refreshCustomProgram()');
+ run(`setField(0,curWeek().days.mon[0],0,'w','20');setField(0,curWeek().days.mon[0],0,'r','12');`);await run('flushDayWrites()');
+ await run(`saveScheduledEdit('mon',source.ex,{...editVersion,active:false})`);run('dayCache={}');await run('refreshCustomProgram()');
+ assert.equal(run(`curWeek().days.mon[0].ex`),'DB Lateral Raise');
+ assert.equal(run(`curWeek().days.mon[0].sets`),4);
+ assert.equal(run(`DATA.weeks[1].days.mon[0].ex`),run('source.ex'));
+ assert.equal(await run(`(await historyEntries())[0].id.name`),'DB Lateral Raise');
+});
+test('legacy saved and completed sessions remain unchanged while future prescriptions update',()=>{
+ const {run}=app();run(editSetup);
+ assert.equal(run(`(()=>{const base=pickProgram(null),plan={version:1,rules:[],edits:[{day:'mon',source:source.ex,versions:[editVersion]}]};const p=customizedProgram(base,plan,0,{'bts:log:w1:mon':{0:{sets:[{w:'100',r:'8'}]}}},{'bts:fin:w2:mon':{at:'saved'}});return p.weeks[0].days.mon[0].ex===source.ex&&p.weeks[1].days.mon[0].ex===source.ex&&p.weeks[2].days.mon[0].ex==='DB Lateral Raise';})()`),true);
+});
+test('reset clears unused replacement metadata without changing actual logs',async()=>{
+ const {run}=app();run(editSetup);run(`renderAll=async()=>{};`);
+ await run(`saveScheduledEdit('mon',source.ex,editVersion)`);await run('refreshCustomProgram()');run('liveRec(0)');
+ await run(`saveScheduledEdit('mon',source.ex,{...editVersion,active:false})`);await run('refreshCustomProgram()');
+ assert.equal(run(`EH.identity(curWeek().days.mon[0],liveRec(0)).name`),run('source.ex'));
+ assert.equal(run(`liveRec(0).sets.length`),0);
+});
+test('program edits survive cycle rollover, reject invalid saves and are included in backups',async()=>{
+ const {run,store}=app();run(editSetup);run(`renderAll=async()=>{};`);
+ await run(`saveScheduledEdit('mon',source.ex,editVersion)`);await run('refreshCustomProgram()');
+ const before=store.get('bts:custom:program:v1');
+ await assert.rejects(run(`saveScheduledEdit('mon',source.ex,{...editVersion,sets:-1})`));assert.equal(store.get('bts:custom:program:v1'),before);
+ run(`setField(0,curWeek().days.mon[0],0,'w','20');setField(0,curWeek().days.mon[0],0,'r','12');`);
+ assert.ok(JSON.parse(await run(`JSON.stringify(await gatherAll())`))['bts:custom:program:v1'].edits.length);
+ await run('startNewProgram(false)');await run('refreshCustomProgram()');
+ assert.equal(run(`curWeek().days.mon[0].ex`),'DB Lateral Raise');
+ assert.ok(JSON.parse(store.get('bts:arch:c1:bts:custom:program:v1')).edits.length);
+ assert.equal(await run(`(await previousSets(editVersion.exercise,1,'mon'))[0].w`),'20');
+});
 test('recurring additions start at the chosen session, skip duplicate lifts and leave the shipped plan intact',()=>{
  const {run}=app();run(customSetup);
  assert.equal(run(`(()=>{const base=pickProgram(null),before=JSON.stringify(base);const p=customizedProgram(base,{version:1,rules:[{id:'side-delts',versions:[{...added,from:programRank(0,3,'wed'),days:['mon','wed']}]}]},0);return p.weeks[2].days.mon.length===base.weeks[2].days.mon.length&&p.weeks[2].days.wed.at(-1).logKey==='extra:side-delts'&&p.weeks[2].days.fri.length===base.weeks[2].days.fri.length&&p.weeks[3].days.mon.at(-1).ex==='DB Lateral Raise'&&JSON.stringify(base)===before;})()`),true);

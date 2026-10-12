@@ -139,13 +139,13 @@ function loadoutSVG(base, perSide){
 }
 
 // live mutable record for the current day (mutations persist via queueSave)
-function logSlot(ex,idx){ return ex?.logKey||idx; }
+function logSlot(ex,idx){ return ex?.logKey??ex?.slotKey??idx; }
 function dayRecord(log,ex,idx){ return log[logSlot(ex,idx)]; }
 function liveRec(idx){
   const k=keyFor(state.wk,state.day), dc=dayCache[k]||(dayCache[k]={});
   const planned=DATA.weeks[state.wk-1]?.days[state.day]?.[idx],slot=logSlot(planned,idx);
   const rec=dc[slot]||(dc[slot]={done:false,sets:[]});
-  if(planned?.logKey&&!hasSessionData(rec)){
+  if((planned?.logKey||planned?.programOverride)&&!hasSessionData(rec)){
     rec.planned={...planned};
     if(!rec.exercise||(!rec.resType&&!rec.variants?.length))rec.exercise={...planned.customIdentity};
   }
@@ -448,7 +448,7 @@ function showWorkoutSummary(wk,day,fin){
 // On finishing a workout, capture every set the lifter put a value into —
 // Completion saves only what was actually entered; sparse PR-only logs stay sparse.
 async function finishWorkout(){
-  if((curWeek().days[state.day]||[]).some(ex=>ex.logKey)) queueSave(state.wk,state.day);
+  await snapshotProgramDay(state.wk,state.day);
   await flushDayWrites();
   const k='bts:fin:w'+state.wk+':'+state.day; const fin={at:new Date().toISOString()};
   try{ await window.storage.set(k, JSON.stringify(fin), false); }catch(_){}
@@ -482,6 +482,8 @@ async function weekSummary(wk){
   return {days, doneMv, totalMv, sets, vol, bestE, bestEx};
 }
 async function completeWeek(){
+  for(const day of PDAYS)await snapshotProgramDay(state.wk,day);
+  await flushDayWrites();
   const k='bts:finwk:w'+state.wk, fin={at:new Date().toISOString()};
   try{ await window.storage.set(k, JSON.stringify(fin), false); }catch(_){}
   finWkCache[k]=fin; scheduleCloudPush();
@@ -643,7 +645,7 @@ async function renderList(){
     const card=document.createElement('div'); card.className='card';
 
     let tags=`<span class="tag"><b>${nSets}</b> × ${esc(ex.reps)} reps</span>`;
-    if(planned.logKey) tags+='<span class="tag">Recurring extra</span>';
+    if(planned.logKey||planned.programOverride) tags+=`<span class="tag">${planned.logKey?'Recurring extra':'Personal plan'}</span>`;
     else {
     if(ex.erpe) tags+=`<span class="tag">early RPE ${esc(ex.erpe)}</span>`;
     tags+=`<span class="tag">last RPE <b>${esc(ex.lrpe)}</b></span>`;
@@ -693,7 +695,7 @@ async function renderList(){
     const lastWk=(s)=>prevSets[s]||{};
     // weight default carries forward from the nearest earlier set you logged this session, else last week's
     function carryWeight(s){ const sets=liveRec(idx).sets||[]; for(let p=s-1;p>=0;p--){ const w=sets[p]&&sets[p].w; if(w!==undefined&&w!=='') return String(w); } const pv=lastWk(s); return (pv.w!=null&&pv.w!=='')?String(pv.w):null; }
-    function repsPre(s){ const pv=lastWk(s); return (pv.r!=null&&pv.r!=='')?String(pv.r):planned.logKey?String(parseInt(planned.reps,10)||8):'8'; }
+    function repsPre(s){ const pv=lastWk(s); return (pv.r!=null&&pv.r!=='')?String(pv.r):(planned.logKey||planned.programOverride)?String(parseInt(planned.reps,10)||8):'8'; }
     function recomputeMovementDone(){ const r=liveRec(idx); let all=nSets>0; for(let s=0;s<nSets;s++){ if(!(r.sets&&r.sets[s]&&r.sets[s].done)){ all=false; break; } } r.done=all; }
     function markSetDone(s){ const r=liveRec(idx); r.sets=r.sets||[]; while(r.sets.length<=s) r.sets.push({}); const sv=r.sets[s];
       if(sv.w===undefined||sv.w===''){ const w=carryWeight(s); if(w!=null) sv.w=w; }   // commit the shown default if untouched
@@ -723,7 +725,7 @@ async function renderList(){
         const hint=(pv&&(pv.w||pv.r))?`<span class="lasthint">${refLbl} <b>${esc(pv.w||'–')}</b> × ${esc(pv.r||'–')}</span>`:'';
         const clearBtn=hasVal?`<button class="setclear" aria-label="Clear this set" title="Clear this set">✕</button>`:'';
         const right=(hint||clearBtn)?`<span class="wtright">${hint}${clearBtn}</span>`:'';
-        const ws=el('div','workset',`<div class="worktop"><span class="sn${last?' last':''}">Set ${s+1}</span>${last&&!planned.logKey?'<span class="failpill">FAILURE</span>':''}${right}</div>`);
+        const ws=el('div','workset',`<div class="worktop"><span class="sn${last?' last':''}">Set ${s+1}</span>${last&&!planned.logKey&&!planned.programOverride?'<span class="failpill">FAILURE</span>':''}${right}</div>`);
         const cb=ws.querySelector('.setclear');
         if(cb) cb.addEventListener('click',async()=>{ const r=liveRec(idx); if(r.sets&&r.sets[s]) r.sets[s]={};
           recomputeMovementDone(); queueSave(state.wk,state.day); await computePRBase(); renderSets(); refreshCounts(); refreshDone(); });
@@ -808,6 +810,7 @@ async function renderAll(){
   renderHeader();
   await renderTabs();
   await renderList();
+  renderProgramOverview();
   document.querySelector('.wrap').scrollIntoView({block:'start'});
 }
 
@@ -993,6 +996,7 @@ const CUSTOM_PROGRAM_KEY='bts:custom:program:v1';
 function programRank(cycle,wk,day){return cycle*1000+wk*10+PDAYS.indexOf(day);}
 function validateCustomProgram(plan){
   if(!plan||plan.version!==1||!Array.isArray(plan.rules)||plan.rules.length>100) throw Error('The saved recurring plan could not be read.');
+  validateProgramEdits(plan.edits||[]);
   const ids=new Set();
   for(const rule of plan.rules){
     if(!rule||typeof rule.id!=='string'||!/^[a-zA-Z0-9-]{1,80}$/.test(rule.id)||ids.has(rule.id)||!Array.isArray(rule.versions)||!rule.versions.length) throw Error('Invalid recurring exercise.');
@@ -1000,6 +1004,7 @@ function validateCustomProgram(plan){
     for(const v of rule.versions){
       if(!Number.isSafeInteger(v.from)||v.from<0||typeof v.active!=='boolean'||!Array.isArray(v.days)||!v.days.length||v.days.some(d=>!PDAYS.includes(d))||!v.exercise||typeof v.exercise.name!=='string'||!v.exercise.name.trim()||v.exercise.name.length>100||!RES_ORDER.includes(v.exercise.equipment)||typeof v.exercise.label!=='string'||v.exercise.label.length>80||!Number.isInteger(v.sets)||v.sets<1||v.sets>10||typeof v.reps!=='string'||!/^\d{1,3}(?:-\d{1,3})?$/.test(v.reps)) throw Error('Check the exercise, workout days, sets and rep range.');
       const range=v.reps.split('-').map(Number);if(range.some(n=>n<1)||range.length===2&&range[1]<range[0])throw Error('Enter a rep range such as 8-12.');
+      if(v.exercise.targetMuscle!=null&&!PROGRAM_MUSCLES.includes(v.exercise.targetMuscle))throw Error('Choose a primary muscle group.');
     }
   }
   return plan;
@@ -1015,8 +1020,9 @@ function customizedProgram(base,plan,cycle,logs={},finished={}){
   validateCustomProgram(plan);
   return {...base,weeks:base.weeks.map(w=>({...w,days:Object.fromEntries(Object.entries(w.days).map(([day,scheduled])=>{
     if(!PDAYS.includes(day))return [day,scheduled];
-    const rows=scheduled.slice(), log=logs[keyFor(w.n,day)]||{}, seen=new Set();
+    const log=logs[keyFor(w.n,day)]||{}, seen=new Set();
     const closed=finished['bts:fin:w'+w.n+':'+day]||finished['bts:finwk:w'+w.n];
+    const rows=applyScheduledEdits(scheduled,plan.edits||[],programRank(cycle,w.n,day),day,log,closed);
     for(const rule of plan.rules){
       const slot='extra:'+rule.id,rec=log[slot],v=ruleAt(rule,programRank(cycle,w.n,day));
       if(rec?.planned?.ex&&(hasSessionData(rec)||closed)) {rows.push({...rec.planned,logKey:slot});seen.add(slot);continue;}
@@ -1025,7 +1031,7 @@ function customizedProgram(base,plan,cycle,logs={},finished={}){
       // prescription rather than silently adding a duplicate or extra sets.
       const identity=EH.key(v.exercise);
       if(rows.some(ex=>EH.key(EH.identity(ex))===identity))continue;
-      rows.push({ex:v.exercise.name,sets:v.sets,reps:v.reps,rest:'As needed',wu:'As needed',lrpe:'Your choice',tech:'',notes:'Personal recurring exercise.',logKey:slot,customIdentity:{...v.exercise}});seen.add(slot);
+      rows.push({ex:v.exercise.name,sets:v.sets,reps:v.reps,rest:'As needed',wu:'As needed',lrpe:'Your choice',tech:'',notes:'Personal recurring exercise.',logKey:slot,customIdentity:{...v.exercise},targetMuscle:v.exercise.targetMuscle});seen.add(slot);
     }
     for(const [slot,rec] of Object.entries(log)) if(slot.startsWith('extra:')&&!seen.has(slot)&&rec?.planned?.ex&&(hasSessionData(rec)||closed)) rows.push({...rec.planned,logKey:slot});
     return [day,rows];
@@ -1038,7 +1044,14 @@ async function refreshCustomProgram(){
     finished['bts:finwk:w'+w.n]=await loadFinWk(w.n);
     for(const day of PDAYS){logs[keyFor(w.n,day)]=await loadDay(w.n,day);finished['bts:fin:w'+w.n+':'+day]=await loadFin(w.n,day);}
   }
-  DATA=customizedProgram(base,plan,cycle,logs,finished);buildIndexes();return plan;
+  DATA=customizedProgram(base,plan,cycle,logs,finished);
+  // Discard only unused, automatically generated override metadata after a
+  // reset. Explicit session equipment choices and all saved sets are retained.
+  for(const w of DATA.weeks)for(const day of PDAYS)(w.days[day]||[]).forEach((ex,i)=>{
+    const rec=dayRecord(logs[keyFor(w.n,day)]||{},ex,i);
+    if(rec?.planned?.programOverride&&!ex.programOverride&&!hasSessionData(rec)&&!rec.resType&&!rec.variants?.length){delete rec.planned;delete rec.exercise;}
+  });
+  buildIndexes();return plan;
 }
 async function saveCustomRule(id,version){
   await flushDayWrites();
@@ -1064,14 +1077,19 @@ async function showCustomProgram(editId=null){
   const form=el('form','recurring-form');
   form.innerHTML=`<label>Exercise<input name="exercise" list="recurringNames" required maxlength="100" placeholder="e.g. High-Cable Lateral Raise"></label><datalist id="recurringNames">${names.map(n=>`<option value="${bookAttr(n)}"></option>`).join('')}</datalist><label>Equipment<select name="equipment">${RES_ORDER.map(k=>`<option value="${k}">${WRES[k].label}</option>`).join('')}</select></label><label>Machine / setup name (optional)<input name="setup" maxlength="80" placeholder="Same name shares the same PR history"></label><div class="recurring-fields"><label>Sets<input name="sets" type="number" min="1" max="10" step="1" value="3" required></label><label>Rep range<input name="reps" inputmode="text" placeholder="e.g. 10-15" required pattern="[0-9]{1,3}(-[0-9]{1,3})?"></label></div><fieldset><legend>Repeat on</legend>${PDAYS.map(d=>`<label><input type="checkbox" name="days" value="${d}"> ${DAYS.find(x=>x.k===d).dow}</label>`).join('')}</fieldset><p class="recurring-note">If this exercise and equipment are already scheduled, that day keeps its existing sets. Give different machines distinct setup names.</p><p class="recurring-error" role="alert"></p><button class="databtn" type="submit">${existing?'Save changes':'Add recurring exercise'}</button>`;
   const field=name=>form.querySelector(`[name="${name}"]`);
+  const muscleLabel=el('label',null,'Primary muscle'),muscleSelect=el('select');muscleSelect.name='muscle';
+  PROGRAM_MUSCLES.forEach(m=>{const option=el('option',null,m);option.value=m;muscleSelect.appendChild(option);});muscleLabel.appendChild(muscleSelect);
+  form.insertBefore(muscleLabel,form.querySelector('.recurring-fields'));
+  muscleSelect.value=current?primaryMuscle({ex:current.exercise.name,customIdentity:current.exercise}):'Other';
   if(current){field('exercise').value=current.exercise.name;field('equipment').value=current.exercise.equipment;field('setup').value=current.exercise.label;field('sets').value=current.sets;field('reps').value=current.reps;}
   form.querySelectorAll('[name="days"]').forEach(c=>c.checked=(current?.days||[state.day]).includes(c.value));
   field('exercise').addEventListener('change',()=>{if(!existing)field('equipment').value=resTypeFor(field('exercise').value);});
+  field('exercise').addEventListener('change',()=>{muscleSelect.value=primaryMuscle({ex:field('exercise').value});});
   const error=form.querySelector('.recurring-error');let saving=false;
   async function apply(active){
     if(saving)return;
     const exercise={name:field('exercise').value.trim().replace(/\s+/g,' '),equipment:field('equipment').value,label:field('setup').value.trim().replace(/\s+/g,' ')};
-    exercise.group=EX_GROUP[exercise.name]||'Other';
+    exercise.group=EX_GROUP[exercise.name]||'Other';exercise.targetMuscle=muscleSelect.value;
     const days=[...form.querySelectorAll('[name="days"]')].filter(c=>c.checked).map(c=>c.value);
     const version={from,active,exercise,days,sets:Number(field('sets').value),reps:field('reps').value.trim()};
     const duplicate=plan.rules.find(r=>r.id!==editId&&ruleAt(r,from)?.active&&EH.key(ruleAt(r,from).exercise)===EH.key(exercise));
@@ -2073,10 +2091,12 @@ document.getElementById('seg').onclick=e=>{ const b=e.target.closest('.segbtn');
   [...e.currentTarget.children].forEach(c=>c.classList.toggle('on',c===b));
   document.getElementById('trainNav').style.display=train?'':'none';
   document.getElementById('trainView').style.display=train?'':'none';
-  document.getElementById('bodyView').style.display=train?'none':'';
+  document.getElementById('bodyView').style.display=b.dataset.v==='prog'?'':'none';
+  document.getElementById('programView').style.display=b.dataset.v==='program'?'':'none';
   document.getElementById('fab').style.display=train?'':'none';
   document.getElementById('timer').classList.remove('show');
-  if(!train){ renderProg(); renderShelf(); renderRecovery(); }
+  if(b.dataset.v==='prog'){ renderProg(); renderShelf(); renderRecovery(); }
+  if(b.dataset.v==='program') renderProgramOverview();
   window.scrollTo(0,0);
 };
 
@@ -2273,6 +2293,7 @@ async function switchUser(){
   dayCache={}; finCache={}; finWkCache={}; wedCache={}; prFiredSession.clear(); PR_BASE={}; clearDirty();
   LL_USER=null; llDel('ll:user');
   bookState={key:null,open:false,track:null}; ++bookRenderVersion;
+  programFilter=null;document.getElementById('programView').innerHTML='';
   document.getElementById('recordBook').innerHTML='';
   document.getElementById('progressDetails').open=false;
   updateUserChip(); showSignin();

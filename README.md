@@ -220,7 +220,7 @@ The change starts at the selected program week/day, repeats on those days, and
 continues into later cycles. Open an existing rule to edit or stop it from the
 selected session onward. If the exact exercise/equipment/setup is already in
 the shipped schedule, its existing prescription stays and no duplicate is
-added. This feature adds recurring work; it does not rewrite the core program.
+added. Use the Program tab to edit the core schedule separately.
 
 Rules live in the per-profile `bts:custom:program:v1` key with effective-session
 revisions. Custom logs use stable `extra:<id>` slots, leaving original numeric
@@ -244,3 +244,28 @@ effective days, duplicates, stable slots, swaps, preserved prescriptions,
 backup/cycle carryover, invalid or failed saves, and profile isolation. Local
 browser checks with synthetic records cover add, shared last-set history,
 edit, reload, stop, and preserved history in the record book at phone width.
+
+### Program overview and editing
+
+The Program tab shows planned weekly working sets, workout and exercise counts,
+and sets by primary muscle (including separate front, side and rear delts).
+Each set counts once under its assigned primary target; warm-ups and indirect
+work are excluded. Tap a muscle to filter the editable workout list. Totals
+describe the plan, not completed volume, and work with sparse PR-only logging.
+
+Edit a scheduled lift's movement, equipment/setup, primary muscle, sets or rep
+range. Zero sets removes it; Restore original prescription reverses an edit.
+Changes apply to that original movement on that weekday from the selected week
+onward, including future cycles. Recurring extras are managed from the same panel
+and also allow a primary muscle assignment. Saved or completed sessions retain
+their prescription. Completing a workout/week snapshots customized prescriptions
+and removals without creating logged sets.
+
+Optional effective-session edits share the existing per-profile customization
+key and backup/cloud/archive path. Original numeric log slots remain stable even
+when rows are removed. No existing logs are migrated or rewritten. Exercise and
+equipment identities retain separate PR histories.
+
+Program regression tests cover totals, stable slots, effective scope, protected
+legacy and customized sessions, restoration, completion snapshots, invalid saves,
+backup and cycle carryover. Browser checks use isolated sample data.

@@ -74,6 +74,29 @@ button,select,input,.wplate,.splate{touch-action:manipulation}
 .recurring-form input[type=checkbox]{width:20px;height:20px;accent-color:var(--mauve)}
 .recurring-form .recurring-error{color:var(--red)}
 .recurring-form .databtn{margin-top:10px}
+#programView{max-width:600px;margin:auto;padding-top:10px}
+.program-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:24px 0}
+.program-stats strong{display:block;font-size:26px;font-weight:500;font-variant-numeric:tabular-nums}
+.program-stats span{display:block;font-size:11px;color:var(--sub)}
+.program-muscle{display:grid;grid-template-columns:100px minmax(30px,1fr) 28px;width:100%;align-items:center;gap:12px;min-height:44px;text-align:left;font-size:12px;padding:8px 0}
+.program-muscle strong{text-align:right;font-weight:500;font-variant-numeric:tabular-nums}
+.program-track{display:block;height:8px;background:var(--s0);border-radius:5px}
+.program-track>span{display:block;height:100%;background:var(--mauve);border-radius:5px}
+.program-muscle[aria-pressed=true]{color:var(--mauve)}
+.program-list-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.program-day{border-top:1px solid var(--s1)}
+.program-day>summary{display:flex;justify-content:space-between;gap:12px;padding:18px 0;font-size:13px;cursor:pointer;list-style:none}
+.program-day>summary:after{content:'⌄';color:var(--sub)}
+.program-day>summary::-webkit-details-marker{display:none}
+.program-day>summary span:nth-child(2){margin-left:auto;color:var(--sub);font-size:11px}
+.program-exercise{display:flex;justify-content:space-between;align-items:center;gap:14px;width:100%;padding:16px 0;text-align:left;border-top:1px solid var(--s0)}
+.program-exercise>span:first-child{min-width:0;flex:1}
+.program-exercise>span:last-child{font-size:12px;text-align:right;max-width:32%}
+.program-exercise strong{font-size:13px;font-weight:500;overflow-wrap:anywhere}
+.program-exercise small{display:block;font-size:11px;color:var(--sub);margin-top:6px;overflow-wrap:anywhere}
+.program-exercise>span:last-child small{color:var(--mauve)}
+.program-removed button{display:block;min-height:44px;padding:12px 0;text-align:left;color:var(--sub);font-size:12px}
+#programView button:focus-visible,#programView summary:focus-visible{outline:2px solid var(--mauve);outline-offset:3px}
 .wrap{max-width:760px;margin:0 auto;padding:0 14px 120px}
 
 /* ---------- Header ---------- */
@@ -369,7 +392,7 @@ header{position:sticky;top:0;z-index:30;background:linear-gradient(180deg,var(--
 /* ---------- segmented Train/Body ---------- */
 .segwrap{max-width:760px;margin:9px auto 0;padding:0 14px;display:flex;justify-content:center}
 .seg{display:inline-flex;background:var(--s0);border:1px solid var(--s1);border-radius:12px;padding:3px}
-.segbtn{padding:7px 26px;border-radius:9px;font-family:var(--disp);font-weight:700;font-size:13px;color:var(--sub);transition:.15s}
+.segbtn{padding:10px 17px;border-radius:9px;font-family:var(--disp);font-weight:700;font-size:13px;color:var(--sub);transition:.15s;min-height:44px}
 .segbtn.on{background:var(--s2);color:var(--text)}
 .segbtn:active{transform:scale(.96)}
 
