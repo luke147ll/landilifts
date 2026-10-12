@@ -122,7 +122,7 @@ function renderProgramOverview(){
   const week=DATA.weeks[state.wk-1],stats=plannedWeekStats(week),max=Math.max(1,...Object.values(stats.groups),...Object.values(stats.indirect));
   const openDays=[...root.querySelectorAll('details[open]')].map(e=>e.dataset.day);
   const shown=PROGRAM_MUSCLES.filter(m=>stats.groups[m]>0||stats.indirect[m]>0||m==='Side delts');
-  root.innerHTML=`<div class="book-heading"><h1>Your program</h1><p>Plan your week. Make room for your priorities.</p></div><label class="book-label">Program week<select id="programWeek">${DATA.weeks.map(w=>`<option value="${w.n}"${w.n===state.wk?' selected':''}>Week ${w.n}${w.deload?' · Deload':''}</option>`).join('')}</select></label><label class="book-label">Week intensity<select id="weekIntensity"><option value="scheduled"${!week.intensityMode?' selected':''}>Original schedule${pickProgram(LL_USER).weeks[state.wk-1].deload?' · intro/deload':''}</option><option value="normal"${week.intensityMode==='normal'?' selected':''}>Normal training</option><option value="light"${week.intensityMode==='light'?' selected':''}>Lighter week</option></select></label><p class="book-note">For this week and cycle only. Lighter week uses about half the sets (rounded up), including extras, with 3–4 reps in reserve and no intensity techniques. Normal keeps regular sets and effort targets. Saved exercises and completed workouts stay unchanged; totals may include both.</p><p id="weekIntensityError" role="alert" class="recurring-error"></p><div class="program-stats"><div><strong>${stats.total}</strong><span>planned sets</span></div><div><strong>${stats.workouts}</strong><span>workouts</span></div><div><strong>${stats.movements}</strong><span>exercise slots</span></div></div><h2 class="book-section-title">Weekly sets by muscle</h2><p class="book-note">Direct = sets targeting that muscle. Indirect = sets where it assists, such as triceps during pressing. Each assisting set counts once, not as an equivalent direct set. Warm-ups excluded. Tap a muscle to see both sources.</p>${stats.unmapped?`<p class="book-note">Indirect work is not mapped for ${stats.unmapped} exercise slot${stats.unmapped===1?'':'s'} this week; those contributions are not counted.</p>`:''}<div class="program-volume-legend"><span>Muscle</span><span>Direct</span><span>Indirect</span></div><div class="program-muscles">${shown.map(m=>`<button type="button" class="program-muscle" data-muscle="${m}" aria-pressed="${programFilter===m}"><span>${m}</span><span class="program-count"><span class="program-track" aria-hidden="true"><span style="width:${stats.groups[m]/max*100}%"></span></span><strong><span class="sr-only">Direct sets: </span>${stats.groups[m]}</strong></span><span class="program-count indirect"><span class="program-track" aria-hidden="true"><span style="width:${stats.indirect[m]/max*100}%"></span></span><strong><span class="sr-only">Indirect sets: </span>${stats.indirect[m]}</strong></span></button>`).join('')}</div><div class="program-list-heading"><h2 class="book-section-title">${programFilter?esc(programFilter)+' exercises':'Your workouts'}</h2>${programFilter?'<button class="book-action" data-clear-filter>Show all</button>':''}</div><button class="add-exercise" data-program-add>+ Add / manage recurring exercises</button><div class="program-days">${stats.days.map(d=>{
+  root.innerHTML=`<div class="book-heading"><h1>Your program</h1><button type="button" class="book-action" data-program-export>Export full program</button><p>Plan your week. Make room for your priorities.</p></div><label class="book-label">Program week<select id="programWeek">${DATA.weeks.map(w=>`<option value="${w.n}"${w.n===state.wk?' selected':''}>Week ${w.n}${w.deload?' · Deload':''}</option>`).join('')}</select></label><label class="book-label">Week intensity<select id="weekIntensity"><option value="scheduled"${!week.intensityMode?' selected':''}>Original schedule${pickProgram(LL_USER).weeks[state.wk-1].deload?' · intro/deload':''}</option><option value="normal"${week.intensityMode==='normal'?' selected':''}>Normal training</option><option value="light"${week.intensityMode==='light'?' selected':''}>Lighter week</option></select></label><p class="book-note">For this week and cycle only. Lighter week uses about half the sets (rounded up), including extras, with 3–4 reps in reserve and no intensity techniques. Normal keeps regular sets and effort targets. Saved exercises and completed workouts stay unchanged; totals may include both.</p><p id="weekIntensityError" role="alert" class="recurring-error"></p><div class="program-stats"><div><strong>${stats.total}</strong><span>planned sets</span></div><div><strong>${stats.workouts}</strong><span>workouts</span></div><div><strong>${stats.movements}</strong><span>exercise slots</span></div></div><h2 class="book-section-title">Weekly sets by muscle</h2><p class="book-note">Direct = sets targeting that muscle. Indirect = sets where it assists, such as triceps during pressing. Each assisting set counts once, not as an equivalent direct set. Warm-ups excluded. Tap a muscle to see both sources.</p>${stats.unmapped?`<p class="book-note">Indirect work is not mapped for ${stats.unmapped} exercise slot${stats.unmapped===1?'':'s'} this week; those contributions are not counted.</p>`:''}<div class="program-volume-legend"><span>Muscle</span><span>Direct</span><span>Indirect</span></div><div class="program-muscles">${shown.map(m=>`<button type="button" class="program-muscle" data-muscle="${m}" aria-pressed="${programFilter===m}"><span>${m}</span><span class="program-count"><span class="program-track" aria-hidden="true"><span style="width:${stats.groups[m]/max*100}%"></span></span><strong><span class="sr-only">Direct sets: </span>${stats.groups[m]}</strong></span><span class="program-count indirect"><span class="program-track" aria-hidden="true"><span style="width:${stats.indirect[m]/max*100}%"></span></span><strong><span class="sr-only">Indirect sets: </span>${stats.indirect[m]}</strong></span></button>`).join('')}</div><div class="program-list-heading"><h2 class="book-section-title">${programFilter?esc(programFilter)+' exercises':'Your workouts'}</h2>${programFilter?'<button class="book-action" data-clear-filter>Show all</button>':''}</div><button class="add-exercise" data-program-add>+ Add / manage recurring exercises</button><div class="program-days">${stats.days.map(d=>{
     const items=d.exercises.filter(e=>!programFilter||e.muscle===programFilter||e.indirect?.includes(programFilter));
     const originals=pickProgram(LL_USER).weeks[state.wk-1].days[d.day]||[];
     const removed=originals.map((ex,index)=>({ex,index})).filter(o=>!d.exercises.some(e=>!e.ex.logKey&&(e.ex.slotKey??e.index)===o.index));
@@ -132,6 +132,56 @@ function renderProgramOverview(){
       return `<button class="program-exercise" data-program-day="${d.day}" data-program-index="${index}"><span><strong>${esc(ex.ex)}</strong><small>${esc(EH.label(EH.identity(ex)).split(' · ').slice(1).join(' · '))} · ${muscle}</small><small>${ex.logKey?'Recurring extra':ex.programOverride?'Personal plan':'Scheduled'}${locked?' · Saved session protected':''}</small></span><span>${sets} × ${esc(ex.reps)}<small>${programFilter?(muscle===programFilter?'Direct':'Indirect')+' · ':''}Edit ›</small></span></button>`;
     }).join('')}${!programFilter&&removed.length?`<div class="program-removed">${removed.map(o=>`<button data-program-restore="${o.index}" data-program-day="${d.day}">${esc(o.ex.ex)} · removed · Restore / edit</button>`).join('')}</div>`:''}</details>`;
   }).join('')||'<p class="book-note">No exercises assigned to this muscle in this week.</p>'}</div>`;
+}
+function programReviewText(program,plan,cycle,logs={},finished={}){
+  const clean=value=>String(value??'').replace(/[\r\n\t]+/g,' ').trim();
+  const lines=['LANDI LIFTS — FULL PROGRAM REVIEW',`Cycle ${cycle+1} · ${program.weeks.length} weeks · Monday / Wednesday / Friday`,
+    '', 'SCOPE AND COUNTING',
+    'This is the current effective program, including personal edits, recurring additions and week-intensity choices. Saved exercises and completed sessions retain their prescriptions, so a week may contain mixed intensities.',
+    'Sets are planned working sets, not proof of completed training. Logging may be PR-only. Warm-ups are separate. Weights, reps actually logged, PR history and account/check-in details are excluded.',
+    'Direct sets count once under the assigned primary muscle. Indirect sets count once for each mapped assisting muscle; they are NOT equivalent direct sets. Unknown indirect contributions are flagged. A compound exercise can train more than its single primary label suggests.',
+    'Lighter week = half the normal sets rounded up, minimum one, with 3–4 reps in reserve and no intensity techniques. Choices apply only to this cycle. RPE 10 means no reps in reserve.',
+    '', 'REVIEW REQUEST',
+    'Assess muscle coverage, weekly workload, exercise order, progression and recovery demands. Distinguish observations from assumptions. Ask about goals, experience, recovery and actual progress before prescribing changes. Do not infer completed volume from this plan.', ''];
+  for(const w of program.weeks){
+    const stats=plannedWeekStats(w);
+    lines.push(`WEEK ${w.n} — ${clean(w.block)}`,`Intensity: ${w.intensityMode==='light'?'Lighter week':w.intensityMode==='normal'?'Normal training':w.deload?'Original schedule: intro/deload':'Original schedule: normal'}`,`Planned working sets: ${stats.total} · Workouts: ${stats.workouts} · Exercise slots: ${stats.movements}`, 'Weekly muscle sets (direct / indirect):');
+    for(const m of PROGRAM_MUSCLES)if(stats.groups[m]||stats.indirect[m])lines.push(`  ${m}: ${stats.groups[m]} / ${stats.indirect[m]}`);
+    if(stats.unmapped)lines.push(`  Indirect work unmapped for ${stats.unmapped} exercise slots.`);
+    for(const {day,exercises,sets} of stats.days){
+      const log=logs[keyFor(w.n,day)]||{},closed=finished['bts:fin:w'+w.n+':'+day]||finished['bts:finwk:w'+w.n];
+      lines.push('',`${day.toUpperCase()} — ${sets} planned sets${closed?' · Completed session protected':''}`);
+      if(!exercises.length)lines.push('  No scheduled exercises.');
+      for(const {ex,index,muscle,indirect} of exercises){
+        const rec=dayRecord(log,ex,index),id=EH.identity(ex);
+        lines.push(`${index+1}. ${clean(EH.label(id))} — ${ex.sets} sets × ${clean(ex.reps)} reps`,
+          `   Primary: ${muscle}. Assisting: ${indirect===null?'Unmapped':indirect.join(', ')||'None mapped'}.`,
+          `   Source: ${ex.logKey?'Recurring addition':ex.programOverride?'Personal program edit':'Scheduled'}. ${hasSessionData(rec)||closed?'Saved prescription protected. ':''}${ex.weekMode==='light'?'Lighter prescription.':''}`);
+        if(ex.logKey||ex.programOverride)lines.push(`   Effort: ${ex.weekMode==='light'?'3–4 reps in reserve':'Self-selected; no prescribed failure target'}.`);
+        else lines.push(`   Effort: early RPE ${clean(ex.erpe)||'unspecified'}; last-set RPE ${clean(ex.lrpe)||'unspecified'}.`);
+        lines.push(`   Rest: ${clean(ex.rest)||'unspecified'}. Warm-up sets: ${clean(ex.wu)||'unspecified'}.`);
+        if(!ex.logKey&&!ex.programOverride&&ex.tech&&ex.tech!=='N/A')lines.push(`   Technique: ${clean(ex.tech)}.`);
+        if(ex.notes)lines.push(`   Coaching notes: ${clean(ex.notes)}`);
+        if(rec)for(const entry of EH.entries(ex,rec))if(EH.key(entry.id)!==EH.key(id))lines.push(`   Session substitution/setup: ${clean(EH.label(entry.id))} (excluded from planned muscle totals).`);
+      }
+    }
+    lines.push('','');
+  }
+  if(plan.library?.length){lines.push('PERSONAL EXERCISE LIBRARY — reference only, not additional scheduled sets');for(const ex of plan.library)lines.push(`- ${clean(EH.label(ex))} · Primary: ${clean(ex.targetMuscle)}`);}
+  return lines.join('\n');
+}
+async function showProgramExport(){
+  try{
+    await flushDayWrites();await gatherAll(true);
+    const plan=await refreshCustomProgram(),cycle=(await loadBaseline()).cycles||0;
+    const report=programReviewText(DATA,plan,cycle,dayCache,{...finCache,...finWkCache});
+    sheet.innerHTML='<div class="grab"></div><h2>Export full program</h2><p>All 12 weeks, edits, recurring work, effort targets, coaching notes and muscle-set totals. Download this text file to send to a coach or upload to ChatGPT. Logged weights, PRs and check-in details are excluded.</p>';
+    const preview=el('textarea','bigta');preview.readOnly=true;preview.rows=10;preview.value=report;preview.setAttribute('aria-label','Full program export preview');preview.style.cssText='width:100%;box-sizing:border-box;font-size:16px;white-space:pre-wrap;overflow-wrap:anywhere';sheet.appendChild(preview);
+    const status=el('p','book-note');status.setAttribute('role','status');
+    const save=el('button','databtn','Download program (.txt)');save.onclick=()=>{const ok=download('landi-lifts-program-cycle-'+(cycle+1)+'.txt',report,'text/plain;charset=utf-8');status.textContent=ok?'Program file download requested.':'Download unavailable. Copy the program text instead.';};sheet.appendChild(save);
+    const copy=el('button','databtn','Copy program text');copy.onclick=async()=>{try{await navigator.clipboard.writeText(report);status.textContent='Program copied. Paste it into your review conversation.';}catch(_){status.textContent='Copy was unavailable. Use Download program instead.';}};sheet.appendChild(copy);sheet.appendChild(status);
+    const close=el('button','databtn','Close');close.onclick=()=>scrim.classList.remove('show');sheet.appendChild(close);scrim.classList.add('show');
+  }catch(e){alert('Could not prepare the program export: '+e.message);}
 }
 async function saveScheduledEdit(day,source,version){
   await flushDayWrites();const plan=await loadCustomProgram();plan.edits=plan.edits||[];
@@ -176,6 +226,7 @@ async function showProgramEditor(day,index,restore=false){
 }
 document.getElementById('programView').addEventListener('change',e=>{if(e.target.id==='programWeek'){state.wk=Number(e.target.value);renderAll();}});
 document.getElementById('programView').addEventListener('click',e=>{
+  if(e.target.closest('[data-program-export]')){showProgramExport();return;}
   const muscle=e.target.closest('[data-muscle]');if(muscle){programFilter=programFilter===muscle.dataset.muscle?null:muscle.dataset.muscle;renderProgramOverview();return;}
   if(e.target.closest('[data-clear-filter]')){programFilter=null;renderProgramOverview();return;}
   if(e.target.closest('[data-program-add]')){state.day='mon';showCustomProgram();return;}

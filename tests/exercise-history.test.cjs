@@ -393,3 +393,16 @@ test('invalid or failed library saves preserve previous data and cycle rollover 
  await assert.rejects(run("saveLibraryExercise({name:'Second press',equipment:'machine',label:'',targetMuscle:'Glutes'})"),/full/);
  assert.equal(store.get('bts:custom:program:v1'),before);
 });
+
+test('program review includes all weeks, personal prescriptions, lighter totals and library without log values',()=>{
+ const {run}=app();run(customSetup);
+ const report=run(`(()=>{const plan={...customPlan,weekModes:{'0:2':'light'},library:[{name:'Library only lift',equipment:'machine',label:'A',targetMuscle:'Glutes'}]};const logs={'bts:log:w1:mon':{0:{exercise:{name:'Leg Press',equipment:'legpress',label:'Custom setup'},sets:[{w:'98765',r:'432'}]}}};const data=customizedProgram(pickProgram(null),plan,0,logs);return programReviewText(data,plan,0,logs);})()`);
+ assert.equal((report.match(/WEEK \d+ —/g)||[]).length,12);
+ assert.match(report,/DB Lateral Raise/);assert.match(report,/Lighter week/);assert.match(report,/Library only lift/);
+ assert.match(report,/Session substitution\/setup: Leg Press/);assert.doesNotMatch(report,/98765|432/);
+ assert.match(report,/direct \/ indirect/);assert.match(report,/Coaching notes:/);
+});
+test('program review respects removals, completed prescriptions and does not mutate source data',()=>{
+ const {run}=app();run(editSetup);
+ assert.equal(run(`(()=>{const plan={version:1,rules:[],edits:[{day:'mon',source:source.ex,versions:[{...editVersion,sets:0}]}]},base=pickProgram(null),p=customizedProgram(base,plan,0),before=JSON.stringify(p);const text=programReviewText(p,plan,1);return !text.split('WED —')[0].includes('1. Hack Squat')&&text.includes('Cycle 2')&&JSON.stringify(p)===before;})()`),true);
+});

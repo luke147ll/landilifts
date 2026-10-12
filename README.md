@@ -308,3 +308,14 @@ exact identity updates its library entry while distinct setups stay separate.
 The per-profile library uses the existing customization key, travels with
 JSON/cloud backups, and remains available across cycles and after stopping a
 recurring rule. Library-only saves never create workout logs or alter PRs.
+
+### Full program review export
+
+Program > Export full program previews a readable text report and offers Download
+(.txt) and Copy. It covers every week of the active cycle, effective prescriptions,
+recurring additions, intensity choices, direct/indirect set totals, effort, rest,
+warm-ups and coaching notes. Session substitutions are labeled separately from
+planned muscle totals. Personal library entries are a reference appendix.
+Saved weights, performed reps, PR histories and account/check-in details are
+excluded. This review report is not a restorable backup; JSON backup remains
+available separately. Exporting does not send anything to another service.
