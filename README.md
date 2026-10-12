@@ -288,3 +288,12 @@ with backups/sync, and do not carry into a new cycle. Logged exercises and
 completed sessions keep their saved prescription. Therefore a partly logged
 week can show mixed prescriptions. Original schedule restores untouched slots.
 No defaults or suggested sets are automatically logged.
+
+### Recurring exercise picker
+
+The add/edit recurring form includes a primary-muscle filter and movement picker.
+Choices include the program, mapped exercises, saved recurring movements, and
+additional glute options (hip thrusts, glute bridge and cable kickback). Choosing
+a movement fills its name, equipment and primary muscle; choosing a different
+movement clears the old setup label. Filtering alone never changes the current
+prescription. Custom names, equipment and primary targets remain editable.

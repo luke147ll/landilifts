@@ -364,3 +364,8 @@ test('completed light workouts retain snapshots without creating logged sets',as
  await run("saveWeekMode(2,'scheduled')");await run('refreshCustomProgram()');
  assert.equal(run('DATA.weeks[1].days.mon[0].sets'),2);assert.equal(run('DATA.weeks[1].days.wed[0].sets'),3);
 });
+
+test('recurring catalog offers glute movements, deduplicates names and includes personal primary targets',()=>{
+ const {run}=app();run(customSetup);
+ assert.equal(run(`(()=>{const choices=recurringExerciseChoices(pickProgram(null),customPlan),glutes=choices.filter(ex=>ex.muscle==='Glutes');return glutes.some(ex=>ex.name==='Machine Hip Abduction')&&glutes.some(ex=>ex.name==='Barbell Hip Thrust'&&ex.equipment==='plates')&&glutes.some(ex=>ex.name==='DB Glute Bridge'&&ex.equipment==='dumbbell')&&choices.some(ex=>ex.name==='DB Lateral Raise'&&ex.muscle==='Side delts')&&choices.every(ex=>RES_ORDER.includes(ex.equipment))&&new Set(choices.map(ex=>ex.name)).size===choices.length&&!glutes.some(ex=>ex.name==='Barbell Bench Press');})()`),true);
+});

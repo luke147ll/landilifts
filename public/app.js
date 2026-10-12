@@ -1071,7 +1071,7 @@ async function showCustomProgram(editId=null){
   let plan;try{plan=await loadCustomProgram();}catch(e){alert(e.message);return;}
   const cycle=(await loadBaseline()).cycles||0,from=programRank(cycle,state.wk,state.day);
   const existing=plan.rules.find(r=>r.id===editId),current=existing?(ruleAt(existing,from)||existing.versions[existing.versions.length-1]):null;
-  const names=[...new Set(pickProgram(LL_USER).weeks.flatMap(w=>PDAYS.flatMap(d=>(w.days[d]||[]).map(ex=>ex.ex))))].sort();
+  const choices=recurringExerciseChoices(pickProgram(LL_USER),plan),names=choices.map(ex=>ex.name);
   sheet.innerHTML=`<div class="grab"></div><h2>${existing?'Edit recurring exercise':'Your recurring exercises'}</h2><p>Changes start Week ${state.wk}, ${DAYS.find(d=>d.k===state.day).dow}. Saved sets and completed sessions stay as they were. Additions repeat into the next cycle.</p>`;
   if(!existing&&plan.rules.length){
     const list=el('div','recurring-list');
@@ -1080,10 +1080,25 @@ async function showCustomProgram(editId=null){
   const form=el('form','recurring-form');
   form.innerHTML=`<label>Exercise<input name="exercise" list="recurringNames" required maxlength="100" placeholder="e.g. High-Cable Lateral Raise"></label><datalist id="recurringNames">${names.map(n=>`<option value="${bookAttr(n)}"></option>`).join('')}</datalist><label>Equipment<select name="equipment">${RES_ORDER.map(k=>`<option value="${k}">${WRES[k].label}</option>`).join('')}</select></label><label>Machine / setup name (optional)<input name="setup" maxlength="80" placeholder="Same name shares the same PR history"></label><div class="recurring-fields"><label>Sets<input name="sets" type="number" min="1" max="10" step="1" value="3" required></label><label>Rep range<input name="reps" inputmode="text" placeholder="e.g. 10-15" required pattern="[0-9]{1,3}(-[0-9]{1,3})?"></label></div><fieldset><legend>Repeat on</legend>${PDAYS.map(d=>`<label><input type="checkbox" name="days" value="${d}"> ${DAYS.find(x=>x.k===d).dow}</label>`).join('')}</fieldset><p class="recurring-note">If this exercise and equipment are already scheduled, that day keeps its existing sets. Give different machines distinct setup names.</p><p class="recurring-error" role="alert"></p><button class="databtn" type="submit">${existing?'Save changes':'Add recurring exercise'}</button>`;
   const field=name=>form.querySelector(`[name="${name}"]`);
+  const browser=el('div','recurring-browser');
+  browser.innerHTML=`<label>Filter exercises by muscle<select name="exerciseFilter"><option value="">All muscles</option>${PROGRAM_MUSCLES.map(m=>`<option>${m}</option>`).join('')}</select></label><label>Choose an exercise<select name="exerciseChoice"></select></label><p class="book-note">Browse by primary muscle, then choose a movement. You can also type your own exercise below.</p>`;
+  form.insertBefore(browser,form.firstChild);
   const muscleLabel=el('label',null,'Primary muscle'),muscleSelect=el('select');muscleSelect.name='muscle';
   PROGRAM_MUSCLES.forEach(m=>{const option=el('option',null,m);option.value=m;muscleSelect.appendChild(option);});muscleLabel.appendChild(muscleSelect);
   form.insertBefore(muscleLabel,form.querySelector('.recurring-fields'));
   muscleSelect.value=current?primaryMuscle({ex:current.exercise.name,customIdentity:current.exercise}):'Other';
+  const filter=field('exerciseFilter'),picker=field('exerciseChoice');
+  function updateChoices(){
+    const matches=choices.filter(ex=>!filter.value||ex.muscle===filter.value);
+    picker.innerHTML=`<option value="">${matches.length?'Choose a movement…':'No matches — type a custom exercise below'}</option>`+matches.map(ex=>`<option value="${bookAttr(ex.name)}">${esc(ex.name)}</option>`).join('');
+  }
+  filter.value=current?muscleSelect.value:'';updateChoices();
+  filter.addEventListener('change',updateChoices);
+  picker.addEventListener('change',()=>{
+    const selected=choices.find(ex=>ex.name===picker.value);if(!selected)return;
+    if(field('exercise').value!==selected.name)field('setup').value='';
+    field('exercise').value=selected.name;field('equipment').value=selected.equipment;muscleSelect.value=selected.muscle;
+  });
   if(current){field('exercise').value=current.exercise.name;field('equipment').value=current.exercise.equipment;field('setup').value=current.exercise.label;field('sets').value=current.sets;field('reps').value=current.reps;}
   form.querySelectorAll('[name="days"]').forEach(c=>c.checked=(current?.days||[state.day]).includes(c.value));
   field('exercise').addEventListener('change',()=>{if(!existing)field('equipment').value=resTypeFor(field('exercise').value);});

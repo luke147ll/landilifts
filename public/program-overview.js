@@ -1,6 +1,21 @@
 // Planned-volume overview. One primary target per exercise, not a recovery or
 // physiological estimate; all targets can be corrected in the program editor.
 const PROGRAM_MUSCLES=['Chest','Back','Front delts','Side delts','Rear delts','Biceps','Triceps','Forearms','Quads','Hamstrings','Glutes','Calves','Adductors','Core','Lower back','Other'];
+const EXTRA_EXERCISE_CHOICES=[
+  {name:'Barbell Hip Thrust',muscle:'Glutes',equipment:'plates'},
+  {name:'Machine Hip Thrust',muscle:'Glutes',equipment:'machine'},
+  {name:'DB Glute Bridge',muscle:'Glutes',equipment:'dumbbell'},
+  {name:'Cable Glute Kickback',muscle:'Glutes',equipment:'machine'}
+];
+function recurringExerciseChoices(program,plan){
+  const choices=new Map();
+  const add=(name,muscle,equipment)=>{if(name)choices.set(name,{name,muscle:muscle||primaryMuscle({ex:name}),equipment:equipment||resTypeFor(name)});};
+  Object.keys(EX_MUSCLE).forEach(name=>add(name));
+  program.weeks.forEach(w=>PDAYS.forEach(d=>(w.days[d]||[]).forEach(ex=>add(ex.ex,primaryMuscle(ex)))));
+  EXTRA_EXERCISE_CHOICES.forEach(ex=>add(ex.name,ex.muscle,ex.equipment));
+  plan.rules.forEach(rule=>{const v=rule.versions.at(-1);if(v)add(v.exercise.name,primaryMuscle({ex:v.exercise.name,customIdentity:v.exercise}),v.exercise.equipment);});
+  return [...choices.values()].sort((a,b)=>a.name.localeCompare(b.name));
+}
 function primaryMuscle(ex){
   const explicit=ex.targetMuscle||ex.customIdentity?.targetMuscle;
   if(PROGRAM_MUSCLES.includes(explicit))return explicit;
